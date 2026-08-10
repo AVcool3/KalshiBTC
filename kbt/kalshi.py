@@ -36,7 +36,7 @@ class KalshiClient:
         self.max_retries = max_retries
         self.session = requests.Session()
         self.session.headers.update({"Accept": "application/json", "User-Agent": "kbt/0.1"})
-        self.throttle_s = 0.35  # pause before each network hit (cache hits skip it)
+        self.throttle_s = float(os.environ.get("KBT_THROTTLE_S", "0.35"))  # cache hits skip it
         self._last_request = 0.0
         if cache_dir:
             os.makedirs(cache_dir, exist_ok=True)
@@ -77,7 +77,7 @@ class KalshiClient:
                 last_error = exc
                 if attempt < self.max_retries - 1:
                     # Rate limits want a real pause, not a quick retry.
-                    base = 5.0 if "429" in str(exc) else 1.0
+                    base = float(os.environ.get("KBT_429_BACKOFF_S", "5")) if "429" in str(exc) else 1.0
                     time.sleep(base * 2**attempt)
             except Exception as exc:  # noqa: BLE001 - retried below, re-raised at end
                 last_error = exc
