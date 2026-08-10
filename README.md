@@ -7,6 +7,31 @@ Backtests this strategy on Kalshi's `KXBTC15M` (Bitcoin up/down, 15-minute windo
 > what you bought it for **and** BTC is still at least 0.02% away from the strike,
 > buy $5 more. Keep doing that until the market closes.
 
+## Results: 7 days, 2026-08-03 18:10 → 2026-08-10 18:10 UTC
+
+661 markets, all settled; full detail in `results_week*/`.
+
+| | Base strategy | No adds (`--dip-pct 100`) | 5 bp filter (`--min-distance-bps 5`) |
+|---|---|---|---|
+| Traded / skipped | 523 / 138 | 523 / 138 | 523 / 138 |
+| Record | 456W–67L (87.2%) | 456W–67L | 456W–67L |
+| Deployed | $3,510.06 | $2,428.48 | $2,948.41 |
+| Fees | $74.78 | $30.49 | $63.10 |
+| **Net P&L** | **−$150.84 (−4.3%)** | **+$89.03 (+3.7%)** | **−$138.31 (−4.7%)** |
+| Max drawdown | −$278.96 | −$32.97 | −$223.29 |
+
+Over a week the ladder flips the strategy from +$89 to −$151, and the adds
+never change a single outcome — the record is identical in all three runs.
+The decomposition is unambiguous: the 387 markets that never triggered an add
+netted **+$262**; the 136 laddered markets netted **−$413** (+$495 on the 83
+that recovered, −$908 on the 53 that didn't). Losses worse than −$10 — all of
+them ladders — number 42 and account for −$802 by themselves. The single best
+trade (+$108, Aug 5 10:15 UTC) was itself a ladder that ran to penny prices
+and happened to flip back: the same coin that usually lands the other way.
+
+Daily net P&L was −$9, −$198, +$107, −$155, +$28, +$58, +$8, +$11 — the
+last-24h window used below was one of the good days.
+
 ## Results: 2026-08-09 18:01 → 2026-08-10 18:01 UTC
 
 Run against real Kalshi candlesticks (95 markets, all settled) with Coinbase
