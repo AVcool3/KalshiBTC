@@ -21,13 +21,23 @@ class KalshiSigner:
 
     @classmethod
     def from_env(cls) -> Optional["KalshiSigner"]:
-        """Build from KALSHI_KEY_ID + KALSHI_PRIVATE_KEY_PATH, else None."""
-        key_id = os.environ.get("KALSHI_KEY_ID", "").strip()
-        path = os.environ.get("KALSHI_PRIVATE_KEY_PATH", "").strip()
-        if not key_id or not path:
+        """Build from environment credentials, else None.
+
+        Key id: KALSHI_KEY_ID or KalshiKEY.
+        Private key: KALSHI_PRIVATE_KEY (PEM content) or
+        KALSHI_PRIVATE_KEY_PATH (path to the .pem Kalshi gave you).
+        """
+        key_id = (os.environ.get("KALSHI_KEY_ID") or os.environ.get("KalshiKEY") or "").strip()
+        if not key_id:
             return None
-        with open(path, "rb") as fh:
-            return cls(key_id, fh.read())
+        pem = os.environ.get("KALSHI_PRIVATE_KEY", "").strip()
+        if pem:
+            return cls(key_id, pem.encode())
+        path = os.environ.get("KALSHI_PRIVATE_KEY_PATH", "").strip()
+        if path:
+            with open(path, "rb") as fh:
+                return cls(key_id, fh.read())
+        return None
 
     def headers(self, method: str, path: str) -> dict:
         from cryptography.hazmat.primitives import hashes

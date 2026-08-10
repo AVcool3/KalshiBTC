@@ -58,6 +58,20 @@ def main(argv: list[str] | None = None) -> int:
     run = sub.add_parser("run", help="backtest the strategy")
     _strategy_args(run)
 
+    trade = sub.add_parser("trade", help="live trader (dry-run unless --live)")
+    trade.add_argument("--live", action="store_true",
+                       help="actually place orders (default: dry-run, print what would happen)")
+    trade.add_argument("--once", action="store_true",
+                       help="evaluate the current market once and exit (good for testing)")
+    trade.add_argument("--stake", type=float, default=5.0)
+    trade.add_argument("--entry-lead-min", type=float, default=7.0)
+    trade.add_argument("--min-odds", type=int, default=60)
+    trade.add_argument("--min-balance", type=float, default=20.0,
+                       help="stop trading if balance would fall below this (dollars)")
+    trade.add_argument("--series", default=SERIES)
+    trade.add_argument("--journal", default="live/journal.jsonl")
+    trade.add_argument("--base-url", default=None)
+
     disc = sub.add_parser("discover", help="list the 15-minute markets in the window")
     disc.add_argument("--hours", type=float, default=24.0)
     disc.add_argument("--end-ts", type=int, default=None)
@@ -71,6 +85,29 @@ def main(argv: list[str] | None = None) -> int:
     from .kalshi import DEFAULT_BASE, KalshiClient
     from .runner import discover as discover_markets
     from .runner import run_backtest, window
+
+    if args.cmd == "trade":
+        from .live import LiveTrader
+
+        cfg = StrategyConfig(
+            entry_lead_s=int(args.entry_lead_min * 60),
+            stake=args.stake,
+            min_odds=args.min_odds,
+        )
+        trader = LiveTrader(
+            cfg,
+            signer=KalshiSigner.from_env(),
+            base_url=args.base_url or DEFAULT_BASE,
+            series=args.series,
+            journal_path=args.journal,
+            min_balance_cents=int(args.min_balance * 100),
+            live=args.live,
+        )
+        if args.once:
+            outcome = trader.tick()
+            return 0 if outcome.action != "error" else 1
+        trader.run_forever()
+        return 0
 
     cache = args.cache_dir or None
 

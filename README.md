@@ -80,6 +80,54 @@ delete it to fetch fresh. Kalshi market data is public — no credentials needed
 If your account requires auth for candlesticks, set `KALSHI_KEY_ID` and
 `KALSHI_PRIVATE_KEY_PATH` and requests are signed automatically.
 
+## Live trading
+
+```bash
+python -m kbt trade --once     # evaluate the current market, print the decision, exit
+python -m kbt trade            # paper-trade: full loop, decisions journaled, no orders
+python -m kbt trade --live     # real orders (requires credentials)
+```
+
+The trader wakes at T-7 before each quarter-hour close, reads the live quote
+(dollar strings, sub-cent ticks handled), picks the side BTC is on, applies the
+>60¢ gate, and places at most one limit buy at the standing ask. No adds, ever.
+Every decision — including skips — is appended to `live/journal.jsonl`.
+
+Safety rails:
+
+- **Dry-run is the default.** Orders are only sent with an explicit `--live`.
+- `--min-balance 20` refuses any order that would take the account below $20.
+- One entry per market; a failed tick logs and waits for the next window.
+
+Credentials (only needed for `--live`; market data is public): set
+`KALSHI_KEY_ID` (or `KalshiKEY`) to the API key UUID, and the RSA private key
+via `KALSHI_PRIVATE_KEY_PATH` (path to the `.pem`) or `KALSHI_PRIVATE_KEY`
+(PEM content). Both halves are required — the UUID alone cannot sign requests.
+
+### Deploying
+
+The process must be running at T-7 of every window you want to trade, so it
+belongs on an always-on machine (any $5 VPS, a Raspberry Pi, a home server):
+
+```bash
+sudo git clone <this repo> /opt/KalshiBTC && cd /opt/KalshiBTC
+sudo useradd -r kbt && sudo mkdir -p /etc/kbt /opt/KalshiBTC/live
+sudo cp ~/kalshi.pem /etc/kbt/kalshi.pem        # the key file from Kalshi
+printf 'KALSHI_KEY_ID=<uuid>\nKALSHI_PRIVATE_KEY_PATH=/etc/kbt/kalshi.pem\n' | sudo tee /etc/kbt/env
+sudo chmod 600 /etc/kbt/env /etc/kbt/kalshi.pem && sudo chown -R kbt /opt/KalshiBTC/live /etc/kbt
+pip install -r requirements.txt
+sudo cp deploy/kbt-trader.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now kbt-trader
+journalctl -u kbt-trader -f                     # watch it decide
+```
+
+Run it **without `--live` for at least a day first** (edit the `ExecStart`
+line) and compare `live/journal.jsonl` against the markets afterward — that
+validates timing, quotes, and side-picking with zero risk. Then flip to
+`--live` with a small balance. Kalshi restricts trading to permitted
+jurisdictions and this is real money on a thin backtested edge — size like
+the week of history it's based on could be wrong, because it could be.
+
 ## How each rule is implemented
 
 | Rule | Implementation | Flag |
