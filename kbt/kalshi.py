@@ -36,6 +36,8 @@ class KalshiClient:
         self.max_retries = max_retries
         self.session = requests.Session()
         self.session.headers.update({"Accept": "application/json", "User-Agent": "kbt/0.1"})
+        self.throttle_s = 0.35  # pause before each network hit (cache hits skip it)
+        self._last_request = 0.0
         if cache_dir:
             os.makedirs(cache_dir, exist_ok=True)
 
@@ -56,8 +58,12 @@ class KalshiClient:
         full_path = url.split(".com", 1)[-1] if ".com" in url else path
         last_error: Optional[Exception] = None
         for attempt in range(self.max_retries):
+            wait = self.throttle_s - (time.monotonic() - self._last_request)
+            if wait > 0:
+                time.sleep(wait)
             headers = self.signer.headers("GET", full_path) if self.signer else {}
             try:
+                self._last_request = time.monotonic()
                 r = self.session.get(url, params=params, headers=headers, timeout=self.timeout)
                 if r.status_code == 429 or r.status_code >= 500:
                     raise requests.HTTPError(f"{r.status_code}: {r.text[:200]}")
@@ -67,6 +73,12 @@ class KalshiClient:
                     with open(cache_file, "w") as fh:
                         json.dump(data, fh)
                 return data
+            except requests.HTTPError as exc:
+                last_error = exc
+                if attempt < self.max_retries - 1:
+                    # Rate limits want a real pause, not a quick retry.
+                    base = 5.0 if "429" in str(exc) else 1.0
+                    time.sleep(base * 2**attempt)
             except Exception as exc:  # noqa: BLE001 - retried below, re-raised at end
                 last_error = exc
                 if attempt < self.max_retries - 1:
