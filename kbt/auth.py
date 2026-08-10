@@ -12,12 +12,30 @@ import time
 from typing import Optional
 
 
+def _normalize_pem(pem: str) -> bytes:
+    """Repair PEMs mangled by env-var entry (escaped or stripped newlines)."""
+    text = pem.strip().replace("\\n", "\n")
+    if "\n" not in text:
+        # Single line: rebuild the framing around the base64 body.
+        import re
+
+        match = re.match(r"^(-----BEGIN [A-Z ]+-----)(.*?)(-----END [A-Z ]+-----)$", text)
+        if match:
+            head, body, tail = match.groups()
+            b64 = body.replace(" ", "")
+            lines = [b64[i : i + 64] for i in range(0, len(b64), 64)]
+            text = "\n".join([head, *lines, tail])
+    return (text + "\n").encode()
+
+
 class KalshiSigner:
     def __init__(self, key_id: str, private_key_pem: bytes):
         from cryptography.hazmat.primitives import serialization
 
         self.key_id = key_id
-        self._key = serialization.load_pem_private_key(private_key_pem, password=None)
+        self._key = serialization.load_pem_private_key(
+            _normalize_pem(private_key_pem.decode()), password=None
+        )
 
     @classmethod
     def from_env(cls) -> Optional["KalshiSigner"]:
@@ -37,6 +55,11 @@ class KalshiSigner:
         if path:
             with open(path, "rb") as fh:
                 return cls(key_id, fh.read())
+        # Fallback: accept the key under any env var name (people name their
+        # secrets all sorts of things) by recognizing the PEM shape itself.
+        for name, value in os.environ.items():
+            if "-----BEGIN" in value and "PRIVATE KEY" in value:
+                return cls(key_id, value.strip().encode())
         return None
 
     def headers(self, method: str, path: str) -> dict:
