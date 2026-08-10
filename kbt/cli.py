@@ -70,6 +70,12 @@ def main(argv: list[str] | None = None) -> int:
                        help="stop trading if balance would fall below this (dollars)")
     trade.add_argument("--max-daily-loss", type=float, default=15.0,
                        help="halt new entries for the UTC day after losing this much (0 = off)")
+    trade.add_argument("--stake-step", type=float, default=0.0,
+                       help="grow stake by this for every --stake-per of portfolio growth (0 = fixed stake)")
+    trade.add_argument("--stake-per", type=float, default=20.0,
+                       help="portfolio growth (dollars) per stake step")
+    trade.add_argument("--stake-cap", type=float, default=20.0,
+                       help="hard ceiling on the per-trade stake")
     trade.add_argument("--series", default=SERIES)
     trade.add_argument("--journal", default="live/journal.jsonl")
     trade.add_argument("--base-url", default=None)
@@ -104,6 +110,9 @@ def main(argv: list[str] | None = None) -> int:
             journal_path=args.journal,
             min_balance_cents=int(args.min_balance * 100),
             max_daily_loss=args.max_daily_loss,
+            stake_step=args.stake_step,
+            stake_per=args.stake_per,
+            stake_cap=args.stake_cap,
             live=args.live,
         )
         if args.once:

@@ -90,3 +90,27 @@ def test_realized_today_sums_settled_entries_and_triggers_halt(tmp_path):
 def test_halt_disabled_in_dry_run(tmp_path):
     t = trader(journal_path=str(tmp_path / "j.jsonl"), max_daily_loss=1.0)
     assert t.daily_halt_reason() is None
+
+
+def test_stake_ladder_steps_with_portfolio_growth(tmp_path):
+    t = trader(journal_path=str(tmp_path / "j.jsonl"), stake_step=1.0, stake_per=20.0)
+    assert t.stake_for(71.38) == 5.0        # first call sets the anchor
+    assert t.stake_for(85.00) == 5.0        # +13.62, below one step
+    assert t.stake_for(91.38) == 6.0        # +20.00 exactly -> one step
+    assert t.stake_for(115.00) == 7.0       # +43.62 -> two steps
+    assert t.stake_for(88.00) == 5.0        # retracement steps back down
+    assert t.stake_for(51.38) == 5.0        # never below base
+    # anchor persisted: a fresh trader on the same journal dir keeps the ladder
+    t2 = trader(journal_path=str(tmp_path / "j.jsonl"), stake_step=1.0, stake_per=20.0)
+    assert t2.stake_for(91.38) == 6.0
+
+
+def test_stake_ladder_respects_cap_and_disabled_mode(tmp_path):
+    t = trader(journal_path=str(tmp_path / "j.jsonl"), stake_step=1.0, stake_per=20.0, stake_cap=8.0)
+    t.stake_for(100.0)  # anchor
+    assert t.stake_for(1_000_000.0) == 8.0  # capped
+    fixed = trader(journal_path=str(tmp_path / "fixed" / "j.jsonl"))
+    import os
+    os.makedirs(os.path.dirname(fixed.journal_path), exist_ok=True)
+    assert fixed.stake_for(1_000_000.0) == 5.0  # step 0 = fixed stake
+    assert fixed.stake_for(None) == 5.0

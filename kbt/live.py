@@ -59,6 +59,9 @@ class LiveTrader:
         journal_path: str = "live/journal.jsonl",
         min_balance_cents: int = 2000,  # stop trading below $20
         max_daily_loss: float = 15.0,  # halt entries for the UTC day (0 = off)
+        stake_step: float = 0.0,  # grow stake by this per stake_per of growth (0 = fixed)
+        stake_per: float = 20.0,
+        stake_cap: float = 20.0,  # hard ceiling on stake, bug blast-radius guard
         live: bool = False,
     ):
         self.cfg = cfg
@@ -67,8 +70,12 @@ class LiveTrader:
         self.journal_path = journal_path
         self.min_balance_cents = min_balance_cents
         self.max_daily_loss = max_daily_loss
+        self.stake_step = stake_step
+        self.stake_per = stake_per
+        self.stake_cap = stake_cap
         self.live = live
         self._result_cache: dict[str, str] = {}  # settled ticker -> "yes"/"no"
+        self.anchor_path = os.path.join(os.path.dirname(journal_path) or ".", "stake_anchor.json")
         self.client = KalshiClient(base_url=base_url, signer=signer, cache_dir=None)
         if live and signer is None:
             raise RuntimeError(
@@ -153,6 +160,34 @@ class LiveTrader:
             total += (contracts - cost - fee) if won else (-cost - fee)
         return total
 
+    # --------------------------------------------------------- stake ladder
+    def portfolio_total(self) -> Optional[float]:
+        """Cash plus open-position value, in dollars."""
+        if self.signer is None:
+            return None
+        data = self.client.get("/portfolio/balance")
+        return (int(data.get("balance", 0)) + int(data.get("portfolio_value", 0))) / 100.0
+
+    def _anchor(self, total: float) -> float:
+        """Portfolio value the growth ladder is measured from (persisted)."""
+        try:
+            with open(self.anchor_path) as fh:
+                return float(json.load(fh)["anchor"])
+        except (FileNotFoundError, ValueError, KeyError):
+            with open(self.anchor_path, "w") as fh:
+                json.dump({"anchor": total}, fh)
+            return total
+
+    def stake_for(self, total: Optional[float]) -> float:
+        """Base stake plus stake_step per full stake_per of growth over the
+        anchor. Steps back down on retracement; never below base stake."""
+        base = self.cfg.stake
+        if not self.stake_step or total is None:
+            return base
+        anchor = self._anchor(total)
+        steps = max(0, int((total - anchor) // self.stake_per))
+        return min(base + steps * self.stake_step, self.stake_cap)
+
     def daily_halt_reason(self) -> Optional[str]:
         if not (self.live and self.max_daily_loss > 0):
             return None
@@ -198,9 +233,13 @@ class LiveTrader:
                 "skip", f"{side} at {ask:.1f}c, gate is >{self.cfg.min_odds}c", m.ticker, side, ask
             )
 
-        contracts = int(self.cfg.stake // ask_dollars)
+        try:
+            stake = self.stake_for(self.portfolio_total() if self.live else None)
+        except Exception:  # noqa: BLE001 - sizing must never kill a tick
+            stake = self.cfg.stake
+        contracts = int(stake // ask_dollars)
         if contracts < 1:
-            return TickOutcome("skip", f"${self.cfg.stake:.2f} buys 0 contracts at {ask:.1f}c", m.ticker, side, ask)
+            return TickOutcome("skip", f"${stake:.2f} buys 0 contracts at {ask:.1f}c", m.ticker, side, ask)
 
         if self.live:
             bal = self.balance_cents()
