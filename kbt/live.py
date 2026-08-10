@@ -162,18 +162,26 @@ class LiveTrader:
         )
 
     def _place(self, ticker: str, side: str, price_dollars: str, contracts: int) -> TickOutcome:
-        # Send the ask exactly as quoted (dollar string) so the price is
-        # always on a valid tick, sub-cent tapers included.
+        # V2 event orders use a single (YES) book with side "bid"/"ask":
+        #   buy YES at P   -> bid at P
+        #   buy NO  at 1-P -> ask at P (selling YES you don't hold = long NO)
+        # price_dollars arrives in the *purchased side's* terms, so NO buys
+        # convert to YES terms first. Prices are dollar strings on-tick.
+        if side == "yes":
+            book_side, book_price = "bid", price_dollars
+        else:
+            book_side = "ask"
+            book_price = f"{1.0 - float(price_dollars):.4f}"
         body = {
             "ticker": ticker,
             "client_order_id": str(uuid.uuid4()),
-            "action": "buy",
-            "side": side,
-            "type": "limit",
-            "count": contracts,
-            f"{side}_price_dollars": price_dollars,
+            "side": book_side,
+            "count": str(contracts),
+            "price": book_price,
+            "time_in_force": "immediate_or_cancel",
+            "self_trade_prevention_type": "taker_at_cross",
         }
-        path = "/portfolio/orders"
+        path = "/portfolio/events/orders"
         url = f"{self.client.base_url}{path}"
         headers = self.signer.headers("POST", f"/trade-api/v2{path}")
         r = self.client.session.post(url, json=body, headers=headers, timeout=15)
@@ -181,10 +189,12 @@ class LiveTrader:
         if r.status_code >= 300:
             return TickOutcome("error", f"order rejected {r.status_code}: {r.text[:200]}", ticker, side, cents)
         order = r.json().get("order", {})
+        status = order.get("status", "?")
         return TickOutcome(
             "order",
-            f"placed {contracts}x {side.upper()} at {cents:.1f}c",
-            ticker, side, cents, contracts, order.get("order_id", ""),
+            f"IOC {contracts}x {side.upper()} at {cents:.1f}c ({book_side} {book_price}) -> {status}",
+            ticker, side, cents, contracts,
+            str(order.get("order_id") or order.get("id") or ""),
         )
 
     # ----------------------------------------------------------------- loop
