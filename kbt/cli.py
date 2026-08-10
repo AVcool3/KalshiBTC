@@ -18,6 +18,8 @@ def _strategy_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--stake", type=float, default=5.0, help="dollars per buy")
     p.add_argument("--entry-lead-min", type=float, default=7.0, help="minutes before close to enter")
     p.add_argument("--min-odds", type=int, default=60, help="only buy above this price, in cents")
+    p.add_argument("--with-adds", action="store_true",
+                   help="enable the dip-buy ladder (off by default; it backtested badly)")
     p.add_argument("--dip-pct", type=float, default=5.0, help="add after this %% drop")
     p.add_argument("--dip-mode", choices=["rel_last", "rel_first", "abs"], default="rel_last")
     p.add_argument("--min-distance-bps", type=float, default=2.0, help="0.02%% = 2 bps")
@@ -37,6 +39,7 @@ def _config_from(args: argparse.Namespace) -> StrategyConfig:
         entry_lead_s=int(args.entry_lead_min * 60),
         stake=args.stake,
         min_odds=args.min_odds,
+        adds=args.with_adds,
         dip_pct=args.dip_pct,
         dip_mode=args.dip_mode,
         min_distance_bps=args.min_distance_bps,

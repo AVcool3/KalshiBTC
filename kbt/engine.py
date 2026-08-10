@@ -103,10 +103,10 @@ def simulate_market(md: MarketData, cfg: StrategyConfig) -> MarketResult:
     res.entry_price = entry_px
     _record(res, cfg, decision_ts, side, entry_px, contracts, "entry", spot, m.strike)
 
-    # --- ladder: every minute from entry to close, look for a 5% dip ---
+    # --- ladder (opt-in): every minute from entry to close, look for a dip ---
     reference = entry_px  # price the next dip is measured against
     first_fill = entry_px
-    for c in md.candles:
+    for c in md.candles if cfg.adds else []:
         if c.ts <= decision_ts or c.ts > m.close_ts:
             continue
         if cfg.max_adds and res.adds >= cfg.max_adds:

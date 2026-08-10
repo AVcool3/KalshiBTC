@@ -69,6 +69,7 @@ def summarize(results: list[MarketResult], cfg: StrategyConfig) -> dict:
             "entry_lead_min": cfg.entry_lead_s / 60,
             "stake": cfg.stake,
             "min_odds": cfg.min_odds,
+            "adds": cfg.adds,
             "dip_pct": cfg.dip_pct,
             "dip_mode": cfg.dip_mode,
             "min_distance_bps": cfg.min_distance_bps,
@@ -137,10 +138,15 @@ def print_summary(summary: dict, meta: Optional[dict] = None) -> None:
         print(f"Window      : {_ts(meta['window_start_ts'])} → {_ts(meta['window_end_ts'])} UTC ({meta['hours']}h)")
         print(f"Series      : {meta['series']}   spot proxy: {meta['spot_source']}")
     c = s["config"]
+    adds_desc = (
+        f"-{c['dip_pct']:.0f}% adds ({c['dip_mode']}), ≥{c['min_distance_bps']:.0f}bp "
+        f"from strike, max adds {c['max_adds']}"
+        if c["adds"]
+        else "no adds"
+    )
     print(
         f"Rules       : T-{c['entry_lead_min']:.0f}min, ${c['stake']:.0f}/buy, "
-        f">{c['min_odds']}% gate, -{c['dip_pct']:.0f}% adds ({c['dip_mode']}), "
-        f"≥{c['min_distance_bps']:.0f}bp from strike, max adds {c['max_adds']}"
+        f">{c['min_odds']}% gate, {adds_desc}"
     )
     print(f"Execution   : {c['price_source']} price, {c['fill_mode']} fills, fees {'on' if c['fees'] else 'off'}")
     print("-" * 62)

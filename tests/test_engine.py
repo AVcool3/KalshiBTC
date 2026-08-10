@@ -61,7 +61,7 @@ def quotes(default: tuple[int, int], overrides: dict[int, tuple[int, int]] | Non
     return q
 
 
-CFG = StrategyConfig()
+CFG = StrategyConfig(adds=True)  # ladder on: most tests exercise it
 
 
 # ----------------------------------------------------------------- entry gate
@@ -147,7 +147,7 @@ def test_ladder_resets_reference_to_each_new_fill():
 
 
 def test_rel_first_mode_measures_every_add_off_the_entry():
-    cfg = StrategyConfig(dip_mode="rel_first")
+    cfg = StrategyConfig(adds=True, dip_mode="rel_first")
     md = data(
         quotes((69, 70), {540: (65, 66), 600: (64, 65)}),
         flat_spot(100_100.0),
@@ -158,7 +158,7 @@ def test_rel_first_mode_measures_every_add_off_the_entry():
 
 
 def test_max_adds_cap_is_respected():
-    cfg = StrategyConfig(max_adds=1)
+    cfg = StrategyConfig(adds=True, max_adds=1)
     md = data(
         quotes((69, 70), {540: (65, 66), 600: (62, 63), 660: (58, 59)}),
         flat_spot(100_100.0),
@@ -264,7 +264,7 @@ def test_locked_book_minute_is_skipped_for_adds_not_fatal():
 
 
 def test_low_fill_mode_never_fills_better_than_the_trigger():
-    cfg = StrategyConfig(fill_mode="low")
+    cfg = StrategyConfig(adds=True, fill_mode="low")
     md = MarketData(
         market=market("yes"),
         candles=[
@@ -311,3 +311,15 @@ def test_no_side_pricing_is_derived_from_the_yes_book():
     assert c.ask("yes") == 45
     assert c.ask("no") == 60  # 100 - yes_bid
     assert c.bid("no") == 55  # 100 - yes_ask
+
+
+def test_default_config_never_adds():
+    md = data(
+        quotes((69, 70), {540: (65, 66), 600: (61, 62)}),
+        flat_spot(100_100.0),
+        result="yes",
+    )
+    r = simulate_market(md, StrategyConfig())
+    assert r.traded
+    assert r.adds == 0
+    assert r.contracts == 7  # the single $5 entry, nothing else

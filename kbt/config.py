@@ -1,12 +1,13 @@
 """Strategy parameters.
 
-Defaults encode the strategy exactly as specified:
+Default strategy: 7 minutes before close, buy $5 of whichever side BTC is
+currently on, but only if that side is trading above 60%. Hold to settlement.
 
-  * 7 minutes before close, buy $5 of whichever side BTC is currently on,
-    but only if that side is trading above 60%.
-  * If the price falls 5% below the last fill AND BTC is still at least
-    0.02% away from the strike, buy $5 more.
-  * Repeat until the market closes.
+The original spec also added $5 whenever the price fell 5% below the last
+fill (while BTC stayed ≥0.02% from the strike). Backtesting 2026-08-03→10
+showed the ladder never changed a market's outcome and turned +$89 into
+−$151, busting a $100 bankroll in 12 hours — so adds are now opt-in via
+`adds=True` (CLI: --with-adds).
 """
 
 from __future__ import annotations
@@ -22,7 +23,8 @@ class StrategyConfig:
     stake: float = 5.00  # dollars per buy
     min_odds: int = 60  # buy only if the side trades strictly above this (cents)
 
-    # --- adds ---
+    # --- adds (opt-in; see module docstring) ---
+    adds: bool = False  # master switch for the dip-buy ladder
     dip_pct: float = 5.0  # add after a 5% drop...
     dip_mode: str = "rel_last"  # ...measured off the last fill ("rel_last"),
     # the first fill ("rel_first"), or in cents ("abs")
