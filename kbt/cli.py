@@ -68,6 +68,8 @@ def main(argv: list[str] | None = None) -> int:
     trade.add_argument("--min-odds", type=int, default=60)
     trade.add_argument("--min-balance", type=float, default=20.0,
                        help="stop trading if balance would fall below this (dollars)")
+    trade.add_argument("--max-daily-loss", type=float, default=15.0,
+                       help="halt new entries for the UTC day after losing this much (0 = off)")
     trade.add_argument("--series", default=SERIES)
     trade.add_argument("--journal", default="live/journal.jsonl")
     trade.add_argument("--base-url", default=None)
@@ -101,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
             series=args.series,
             journal_path=args.journal,
             min_balance_cents=int(args.min_balance * 100),
+            max_daily_loss=args.max_daily_loss,
             live=args.live,
         )
         if args.once:

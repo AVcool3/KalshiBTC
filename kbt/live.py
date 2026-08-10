@@ -58,6 +58,7 @@ class LiveTrader:
         series: str = SERIES,
         journal_path: str = "live/journal.jsonl",
         min_balance_cents: int = 2000,  # stop trading below $20
+        max_daily_loss: float = 15.0,  # halt entries for the UTC day (0 = off)
         live: bool = False,
     ):
         self.cfg = cfg
@@ -65,7 +66,9 @@ class LiveTrader:
         self.series = series
         self.journal_path = journal_path
         self.min_balance_cents = min_balance_cents
+        self.max_daily_loss = max_daily_loss
         self.live = live
+        self._result_cache: dict[str, str] = {}  # settled ticker -> "yes"/"no"
         self.client = KalshiClient(base_url=base_url, signer=signer, cache_dir=None)
         if live and signer is None:
             raise RuntimeError(
@@ -105,9 +108,65 @@ class LiveTrader:
         m, r = min(candidates, key=lambda t: t[0].close_ts)
         return {"market": m, "raw": r}
 
+    # ------------------------------------------------------- circuit breaker
+    def _entries_for_day(self, day: str) -> list[dict]:
+        """Live orders journaled on `day` (UTC), from this and prior restarts."""
+        entries = []
+        try:
+            with open(self.journal_path) as fh:
+                for line in fh:
+                    try:
+                        e = json.loads(line)
+                    except ValueError:
+                        continue
+                    if (
+                        e.get("action") == "order"
+                        and e.get("live")
+                        and str(e.get("ts", "")).startswith(day)
+                        and e.get("ticker") and e.get("side") and e.get("contracts")
+                    ):
+                        entries.append(e)
+        except FileNotFoundError:
+            pass
+        return entries
+
+    def realized_today(self, day: Optional[str] = None) -> float:
+        """Net P&L of today's settled entries (order-priced; IOC fills may
+        be slightly better, so this under-counts wins if anything)."""
+        day = day or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        total = 0.0
+        for e in self._entries_for_day(day):
+            ticker = e["ticker"]
+            result = self._result_cache.get(ticker)
+            if result is None:
+                m = self.client.get(f"/markets/{ticker}").get("market", {})
+                result = (m.get("result") or "").strip().lower()
+                if result in ("yes", "no"):
+                    self._result_cache[ticker] = result
+            if result not in ("yes", "no"):
+                continue  # still open
+            contracts = int(e["contracts"])
+            price = float(e["price"])
+            cost = contracts * price / 100.0
+            fee = self.cfg.fee_for(contracts, int(round(price)))
+            won = result == e["side"]
+            total += (contracts - cost - fee) if won else (-cost - fee)
+        return total
+
+    def daily_halt_reason(self) -> Optional[str]:
+        if not (self.live and self.max_daily_loss > 0):
+            return None
+        realized = self.realized_today()
+        if realized <= -self.max_daily_loss:
+            return f"circuit breaker: {realized:+.2f} today breaches -{self.max_daily_loss:.2f}, halted until next UTC day"
+        return None
+
     # -------------------------------------------------------------- decision
     def decide(self, now: Optional[int] = None) -> TickOutcome:
         now = int(now or time.time())
+        halt = self.daily_halt_reason()
+        if halt:
+            return TickOutcome("skip", halt)
         found = self.current_market(now)
         if not found:
             return TickOutcome("skip", "no open 15-minute market found")
