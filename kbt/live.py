@@ -161,31 +161,35 @@ class LiveTrader:
         return total
 
     # --------------------------------------------------------- stake ladder
-    def portfolio_total(self) -> Optional[float]:
-        """Cash plus open-position value, in dollars."""
-        if self.signer is None:
-            return None
-        data = self.client.get("/portfolio/balance")
-        return (int(data.get("balance", 0)) + int(data.get("portfolio_value", 0))) / 100.0
+    def bot_realized_pnl(self) -> float:
+        """Cumulative realized P&L of the bot's own journaled entries, all
+        days. Manual trading on the account is invisible here by design."""
+        total = 0.0
+        for e in self._entries_for_day(""):  # "" prefix matches every day
+            ticker = e["ticker"]
+            result = self._result_cache.get(ticker)
+            if result is None:
+                m = self.client.get(f"/markets/{ticker}").get("market", {})
+                result = (m.get("result") or "").strip().lower()
+                if result in ("yes", "no"):
+                    self._result_cache[ticker] = result
+            if result not in ("yes", "no"):
+                continue
+            contracts = float(e["contracts"])
+            price = float(e["price"])
+            cost = contracts * price / 100.0
+            fee = self.cfg.fee_for(contracts, int(round(price)))
+            total += (contracts - cost - fee) if result == e["side"] else (-cost - fee)
+        return total
 
-    def _anchor(self, total: float) -> float:
-        """Portfolio value the growth ladder is measured from (persisted)."""
-        try:
-            with open(self.anchor_path) as fh:
-                return float(json.load(fh)["anchor"])
-        except (FileNotFoundError, ValueError, KeyError):
-            with open(self.anchor_path, "w") as fh:
-                json.dump({"anchor": total}, fh)
-            return total
-
-    def stake_for(self, total: Optional[float]) -> float:
-        """Base stake plus stake_step per full stake_per of growth over the
-        anchor. Steps back down on retracement; never below base stake."""
+    def stake_for(self, bot_pnl: Optional[float]) -> float:
+        """Base stake plus stake_step per full stake_per of the bot's own
+        cumulative profit. Steps back down as profit retraces; never below
+        base. Manual account activity does not move this ladder."""
         base = self.cfg.stake
-        if not self.stake_step or total is None:
+        if not self.stake_step or bot_pnl is None:
             return base
-        anchor = self._anchor(total)
-        steps = max(0, int((total - anchor) // self.stake_per))
+        steps = max(0, int(bot_pnl // self.stake_per))
         return min(base + steps * self.stake_step, self.stake_cap)
 
     def daily_halt_reason(self) -> Optional[str]:
@@ -234,7 +238,7 @@ class LiveTrader:
             )
 
         try:
-            stake = self.stake_for(self.portfolio_total() if self.live else None)
+            stake = self.stake_for(self.bot_realized_pnl() if self.live else None)
         except Exception:  # noqa: BLE001 - sizing must never kill a tick
             stake = self.cfg.stake
         contracts = int(stake // ask_dollars)
@@ -251,10 +255,13 @@ class LiveTrader:
                     m.ticker, side, ask,
                 )
             out = self._place(m.ticker, side, ask_str, contracts)
-            if out.action == "no_fill":
-                out2 = self._retry_at_fresh_quote(m.ticker, side, stake, now)
-                if out2 is not None:
-                    return out2
+            for _ in range(2):  # up to two more attempts at re-read quotes
+                if out.action != "no_fill":
+                    break
+                nxt = self._retry_at_fresh_quote(m.ticker, side, stake, now)
+                if nxt is None:
+                    break
+                out = nxt
             return out
 
         return TickOutcome(
@@ -285,20 +292,28 @@ class LiveTrader:
         out.detail = "retry: " + out.detail
         return out
 
-    def _place(self, ticker: str, side: str, price_dollars: str, contracts: int) -> TickOutcome:
-        # V2 event orders use a single (YES) book with side "bid"/"ask":
-        #   buy YES at P   -> bid at P
-        #   buy NO  at 1-P -> ask at P (selling YES you don't hold = long NO)
-        # price_dollars arrives in the *purchased side's* terms, so NO buys
-        # convert to YES terms first. Prices are dollar strings on-tick.
+    @staticmethod
+    def book_order(side: str, price_dollars: str, buffer_cents: float = 0.0) -> tuple[str, str]:
+        """Map a buy of `side` at its quoted ask onto the V2 single (YES) book:
+          buy YES at P   -> bid at P
+          buy NO  at 1-P -> ask at P (selling YES you don't hold = long NO)
+        buffer_cents pays up to that much through the quote so the IOC still
+        fills when the market ticks away between read and submit; the limit
+        keeps it from paying more than quote + buffer.
+        """
+        pay = min(float(price_dollars) + buffer_cents / 100.0, 0.99)
         if side == "yes":
-            book_side, book_price = "bid", price_dollars
-        else:
-            book_side = "ask"
-            book_price = f"{1.0 - float(price_dollars):.4f}"
+            return "bid", f"{pay:.4f}"
+        return "ask", f"{max(1.0 - pay, 0.01):.4f}"
+
+    def _place(
+        self, ticker: str, side: str, price_dollars: str, contracts: int, buffer_cents: float = 2.0
+    ) -> TickOutcome:
+        book_side, book_price = self.book_order(side, price_dollars, buffer_cents)
+        client_order_id = str(uuid.uuid4())
         body = {
             "ticker": ticker,
-            "client_order_id": str(uuid.uuid4()),
+            "client_order_id": client_order_id,
             "side": book_side,
             "count": str(contracts),
             "price": book_price,
@@ -314,7 +329,11 @@ class LiveTrader:
             return TickOutcome("error", f"order rejected {r.status_code}: {r.text[:200]}", ticker, side, cents)
         order = r.json().get("order", {})
         order_id = str(order.get("order_id") or order.get("id") or "")
-        filled = self._filled_count(order_id)
+        if not order_id:
+            order_id = self._order_id_from_client_id(ticker, client_order_id)
+        filled, avg_cents = self._fill_stats(order_id, side)
+        if avg_cents is not None:
+            cents = avg_cents  # journal the price actually paid, not the quote
         if filled is None:
             # Fill feed unreachable: assume filled as ordered so the circuit
             # breaker counts the risk; the journal marks it unverified.
@@ -332,16 +351,35 @@ class LiveTrader:
             ticker, side, cents, filled, order_id,
         )
 
-    def _filled_count(self, order_id: str) -> Optional[float]:
-        """Actual contracts filled for an order, or None if unknowable."""
+    def _order_id_from_client_id(self, ticker: str, client_order_id: str) -> str:
+        """Resolve our client_order_id to the exchange order_id."""
+        try:
+            data = self.client.get("/portfolio/orders", params={"ticker": ticker, "limit": 20})
+            for o in data.get("orders", []):
+                if o.get("client_order_id") == client_order_id:
+                    return str(o.get("order_id") or o.get("id") or "")
+        except Exception:  # noqa: BLE001
+            pass
+        return ""
+
+    def _fill_stats(self, order_id: str, side: str) -> tuple[Optional[float], Optional[float]]:
+        """(contracts filled, average price paid in cents) or (None, None)."""
         if not order_id:
-            return None
+            return None, None
         time.sleep(1.0)  # give the fill a moment to land
         try:
             fills = self.client.get("/portfolio/fills", params={"order_id": order_id, "limit": 50})
-            return sum(float(f.get("count_fp") or f.get("count") or 0) for f in fills.get("fills", []))
+            count, notional = 0.0, 0.0
+            for f in fills.get("fills", []):
+                n = float(f.get("count_fp") or f.get("count") or 0)
+                px = f.get(f"{side}_price_dollars")
+                count += n
+                if px is not None:
+                    notional += n * float(px) * 100.0
+            avg = (notional / count) if count > 0 and notional > 0 else None
+            return count, avg
         except Exception:  # noqa: BLE001
-            return None
+            return None, None
 
     # ----------------------------------------------------------------- loop
     def journal(self, outcome: TickOutcome) -> None:

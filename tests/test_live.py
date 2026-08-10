@@ -92,25 +92,30 @@ def test_halt_disabled_in_dry_run(tmp_path):
     assert t.daily_halt_reason() is None
 
 
-def test_stake_ladder_steps_with_portfolio_growth(tmp_path):
+
+
+def test_book_order_maps_sides_and_pays_through_the_quote():
+    # YES at 82c with 2c buffer -> bid at 0.84
+    assert LiveTrader.book_order("yes", "0.8200", 2.0) == ("bid", "0.8400")
+    # NO at 84c with 2c buffer -> pay up to 86c NO -> ask at 0.14
+    assert LiveTrader.book_order("no", "0.8400", 2.0) == ("ask", "0.1400")
+    # no buffer keeps the quote exactly
+    assert LiveTrader.book_order("yes", "0.6100", 0.0) == ("bid", "0.6100")
+    # buffer never pushes past 99c / below 1c
+    assert LiveTrader.book_order("yes", "0.9850", 2.0) == ("bid", "0.9900")
+    assert LiveTrader.book_order("no", "0.9850", 2.0) == ("ask", "0.0100")
+
+
+def test_stake_ladder_now_tracks_bot_pnl_not_balance(tmp_path):
     t = trader(journal_path=str(tmp_path / "j.jsonl"), stake_step=1.0, stake_per=20.0)
-    assert t.stake_for(71.38) == 5.0        # first call sets the anchor
-    assert t.stake_for(85.00) == 5.0        # +13.62, below one step
-    assert t.stake_for(91.38) == 6.0        # +20.00 exactly -> one step
-    assert t.stake_for(115.00) == 7.0       # +43.62 -> two steps
-    assert t.stake_for(88.00) == 5.0        # retracement steps back down
-    assert t.stake_for(51.38) == 5.0        # never below base
-    # anchor persisted: a fresh trader on the same journal dir keeps the ladder
-    t2 = trader(journal_path=str(tmp_path / "j.jsonl"), stake_step=1.0, stake_per=20.0)
-    assert t2.stake_for(91.38) == 6.0
+    assert t.stake_for(0.0) == 5.0
+    assert t.stake_for(19.99) == 5.0
+    assert t.stake_for(20.0) == 6.0
+    assert t.stake_for(45.0) == 7.0
+    assert t.stake_for(-30.0) == 5.0   # losses never cut below base
+    assert t.stake_for(None) == 5.0
 
 
-def test_stake_ladder_respects_cap_and_disabled_mode(tmp_path):
+def test_stake_cap_still_bounds_ladder(tmp_path):
     t = trader(journal_path=str(tmp_path / "j.jsonl"), stake_step=1.0, stake_per=20.0, stake_cap=8.0)
-    t.stake_for(100.0)  # anchor
-    assert t.stake_for(1_000_000.0) == 8.0  # capped
-    fixed = trader(journal_path=str(tmp_path / "fixed" / "j.jsonl"))
-    import os
-    os.makedirs(os.path.dirname(fixed.journal_path), exist_ok=True)
-    assert fixed.stake_for(1_000_000.0) == 5.0  # step 0 = fixed stake
-    assert fixed.stake_for(None) == 5.0
+    assert t.stake_for(1_000_000.0) == 8.0
