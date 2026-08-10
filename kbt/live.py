@@ -152,7 +152,7 @@ class LiveTrader:
                     self._result_cache[ticker] = result
             if result not in ("yes", "no"):
                 continue  # still open
-            contracts = int(e["contracts"])
+            contracts = float(e["contracts"])
             price = float(e["price"])
             cost = contracts * price / 100.0
             fee = self.cfg.fee_for(contracts, int(round(price)))
@@ -250,7 +250,12 @@ class LiveTrader:
                     f"balance floor: ${bal/100:.2f} minus ~${need/100:.2f} would breach ${self.min_balance_cents/100:.2f}",
                     m.ticker, side, ask,
                 )
-            return self._place(m.ticker, side, ask_str, contracts)
+            out = self._place(m.ticker, side, ask_str, contracts)
+            if out.action == "no_fill":
+                out2 = self._retry_at_fresh_quote(m.ticker, side, stake, now)
+                if out2 is not None:
+                    return out2
+            return out
 
         return TickOutcome(
             "dry_run",
@@ -258,6 +263,27 @@ class LiveTrader:
             f"(spot {spot:,.2f} vs strike {m.strike:,.2f}, closes in {seconds_to_close//60}m)",
             m.ticker, side, ask, contracts,
         )
+
+    def _retry_at_fresh_quote(
+        self, ticker: str, side: str, stake: float, now: int
+    ) -> Optional[TickOutcome]:
+        """After an empty IOC, try once more at the re-read quote."""
+        fresh = self.current_market(now)
+        if not fresh or fresh["market"].ticker != ticker:
+            return None
+        ask_str = fresh["raw"].get(f"{side}_ask_dollars") or ""
+        try:
+            ask = float(ask_str) * 100.0
+        except ValueError:
+            return None
+        if not 0 < ask < 100 or ask <= self.cfg.min_odds:
+            return None
+        contracts = int(stake // (ask / 100.0))
+        if contracts < 1:
+            return None
+        out = self._place(ticker, side, ask_str, contracts)
+        out.detail = "retry: " + out.detail
+        return out
 
     def _place(self, ticker: str, side: str, price_dollars: str, contracts: int) -> TickOutcome:
         # V2 event orders use a single (YES) book with side "bid"/"ask":
@@ -287,13 +313,35 @@ class LiveTrader:
         if r.status_code >= 300:
             return TickOutcome("error", f"order rejected {r.status_code}: {r.text[:200]}", ticker, side, cents)
         order = r.json().get("order", {})
-        status = order.get("status", "?")
+        order_id = str(order.get("order_id") or order.get("id") or "")
+        filled = self._filled_count(order_id)
+        if filled is None:
+            # Fill feed unreachable: assume filled as ordered so the circuit
+            # breaker counts the risk; the journal marks it unverified.
+            return TickOutcome(
+                "order",
+                f"IOC {side.upper()} at {cents:.1f}c ({book_side} {book_price}) fill unverified, assuming {contracts}",
+                ticker, side, cents, contracts, order_id,
+            )
+        if filled <= 0:
+            return TickOutcome("no_fill", f"IOC {contracts}x {side.upper()} at {cents:.1f}c canceled unfilled",
+                               ticker, side, cents, 0, order_id)
         return TickOutcome(
             "order",
-            f"IOC {contracts}x {side.upper()} at {cents:.1f}c ({book_side} {book_price}) -> {status}",
-            ticker, side, cents, contracts,
-            str(order.get("order_id") or order.get("id") or ""),
+            f"IOC {side.upper()} at {cents:.1f}c ({book_side} {book_price}) filled {filled:g}/{contracts}",
+            ticker, side, cents, filled, order_id,
         )
+
+    def _filled_count(self, order_id: str) -> Optional[float]:
+        """Actual contracts filled for an order, or None if unknowable."""
+        if not order_id:
+            return None
+        time.sleep(1.0)  # give the fill a moment to land
+        try:
+            fills = self.client.get("/portfolio/fills", params={"order_id": order_id, "limit": 50})
+            return sum(float(f.get("count_fp") or f.get("count") or 0) for f in fills.get("fills", []))
+        except Exception:  # noqa: BLE001
+            return None
 
     # ----------------------------------------------------------------- loop
     def journal(self, outcome: TickOutcome) -> None:
