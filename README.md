@@ -7,13 +7,32 @@ Backtests this strategy on Kalshi's `KXBTC15M` (Bitcoin up/down, 15-minute windo
 > what you bought it for **and** BTC is still at least 0.02% away from the strike,
 > buy $5 more. Keep doing that until the market closes.
 
-## ⚠️ Status: the run has not been executed against live data
+## Results: 2026-08-09 18:01 → 2026-08-10 18:01 UTC
 
-This code was written in a sandbox whose egress proxy blocks `api.elections.kalshi.com`,
-`kalshi.com`, and every public exchange price API (403 on CONNECT). **No real
-last-24h results are included in this repo, and none should be inferred from it.**
-The engine is fully implemented and covered by 35 offline tests; run the command
-below from a machine with network access to get the actual numbers.
+Run against real Kalshi candlesticks (95 markets, all settled) with Coinbase
+1-minute spot as the index proxy. Full per-market and per-fill detail is in
+`results/`.
+
+| | Base strategy | No adds (`--dip-pct 100`) | 5 bp filter (`--min-distance-bps 5`) |
+|---|---|---|---|
+| Traded / skipped | 76 / 19 (odds ≤ 60¢) | 76 / 19 | 76 / 19 |
+| Record | 71W–5L (93.4%) | 71W–5L | 71W–5L |
+| Adds | 18 across 12 markets | 0 | 11 across 8 |
+| Deployed | $438.19 | $352.42 | $403.75 |
+| **Net P&L** | **+$6.91 (+1.6%)** | **+$28.90 (+8.2%)** | **+$33.12 (+8.2%)** |
+
+The headline: the entry rule made money; the dip-buying ladder gave most of it
+back. Every one of the 5 losing markets kept dipping to the end, so the adds
+concentrated extra capital into exactly the markets that lost — the worst
+(2026-08-10 15:15 UTC) laddered $5 buys down to penny prices, accumulating 679
+doomed contracts for a −$20.48 loss on a single window. Adds on winning markets
+existed too, but at 60–90¢ they bought only a handful of extra contracts each.
+Classic martingale asymmetry: small extra wins, concentrated extra losses.
+
+One day is ~76 trades of a strategy that buys 64–99¢ favorites — the 93% win
+rate is what the prices already implied, and a single bad afternoon (three
+laddered losses in 05:00–05:15 and 15:15) produced a −$29.57 drawdown against
+$5 stakes. Do not extrapolate edge from this sample; re-run with `--hours 168`+.
 
 ## Run it
 
