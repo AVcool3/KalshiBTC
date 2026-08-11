@@ -323,3 +323,13 @@ def test_default_config_never_adds():
     assert r.traded
     assert r.adds == 0
     assert r.contracts == 7  # the single $5 entry, nothing else
+
+
+def test_max_odds_cap_skips_expensive_favorites():
+    md = data(quotes((89, 90)), flat_spot(100_100.0), result="yes")
+    r = simulate_market(md, StrategyConfig(adds=True, max_odds=79))
+    assert not r.traded
+    assert "above 79c cap" in r.skip_reason
+    # at or below the cap still trades
+    md2 = data(quotes((78, 79)), flat_spot(100_100.0), result="yes")
+    assert simulate_market(md2, StrategyConfig(adds=True, max_odds=79)).traded

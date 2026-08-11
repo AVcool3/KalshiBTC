@@ -236,12 +236,21 @@ class LiveTrader:
             return TickOutcome(
                 "skip", f"{side} at {ask:.1f}c, gate is >{self.cfg.min_odds}c", m.ticker, side, ask
             )
+        if ask > self.cfg.max_odds:
+            return TickOutcome(
+                "skip", f"{side} at {ask:.1f}c, above {self.cfg.max_odds}c cap (no edge up there)",
+                m.ticker, side, ask,
+            )
 
-        try:
-            stake = self.stake_for(self.bot_realized_pnl() if self.live else None)
-        except Exception:  # noqa: BLE001 - sizing must never kill a tick
-            stake = self.cfg.stake
-        contracts = int(stake // ask_dollars)
+        if self.cfg.contracts:
+            contracts = self.cfg.contracts
+            stake = contracts * ask_dollars
+        else:
+            try:
+                stake = self.stake_for(self.bot_realized_pnl() if self.live else None)
+            except Exception:  # noqa: BLE001 - sizing must never kill a tick
+                stake = self.cfg.stake
+            contracts = int(stake // ask_dollars)
         if contracts < 1:
             return TickOutcome("skip", f"${stake:.2f} buys 0 contracts at {ask:.1f}c", m.ticker, side, ask)
 
@@ -283,9 +292,9 @@ class LiveTrader:
             ask = float(ask_str) * 100.0
         except ValueError:
             return None
-        if not 0 < ask < 100 or ask <= self.cfg.min_odds:
+        if not 0 < ask < 100 or ask <= self.cfg.min_odds or ask > self.cfg.max_odds:
             return None
-        contracts = int(stake // (ask / 100.0))
+        contracts = self.cfg.contracts or int(stake // (ask / 100.0))
         if contracts < 1:
             return None
         out = self._place(ticker, side, ask_str, contracts)

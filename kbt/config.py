@@ -22,6 +22,9 @@ class StrategyConfig:
     entry_lead_s: int = 7 * 60  # decide this many seconds before close
     stake: float = 5.00  # dollars per buy
     min_odds: int = 60  # buy only if the side trades strictly above this (cents)
+    max_odds: int = 100  # ...and at or below this; 100 = no cap. The 30-day
+    # calibration shows 90c+ favorites are fairly priced (all risk, no edge)
+    contracts: int = 0  # fixed contracts per order; 0 = size by stake dollars
 
     # --- adds (opt-in; see module docstring) ---
     adds: bool = False  # master switch for the dip-buy ladder

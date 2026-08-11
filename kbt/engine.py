@@ -89,6 +89,9 @@ def simulate_market(md: MarketData, cfg: StrategyConfig) -> MarketResult:
     if signal <= cfg.min_odds:
         res.skip_reason = f"odds {signal:.0f}c not above {cfg.min_odds}c"
         return res
+    if signal > cfg.max_odds:
+        res.skip_reason = f"odds {signal:.0f}c above {cfg.max_odds}c cap"
+        return res
 
     entry_px = _fill_price(candle, side, cfg)
     if entry_px is None:

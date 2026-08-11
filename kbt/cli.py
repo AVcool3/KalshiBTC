@@ -18,6 +18,7 @@ def _strategy_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--stake", type=float, default=5.0, help="dollars per buy")
     p.add_argument("--entry-lead-min", type=float, default=7.0, help="minutes before close to enter")
     p.add_argument("--min-odds", type=int, default=60, help="only buy above this price, in cents")
+    p.add_argument("--max-odds", type=int, default=100, help="skip entries above this price (cents)")
     p.add_argument("--with-adds", action="store_true",
                    help="enable the dip-buy ladder (off by default; it backtested badly)")
     p.add_argument("--dip-pct", type=float, default=5.0, help="add after this %% drop")
@@ -39,6 +40,7 @@ def _config_from(args: argparse.Namespace) -> StrategyConfig:
         entry_lead_s=int(args.entry_lead_min * 60),
         stake=args.stake,
         min_odds=args.min_odds,
+        max_odds=args.max_odds,
         adds=args.with_adds,
         dip_pct=args.dip_pct,
         dip_mode=args.dip_mode,
@@ -66,6 +68,10 @@ def main(argv: list[str] | None = None) -> int:
     trade.add_argument("--stake", type=float, default=5.0)
     trade.add_argument("--entry-lead-min", type=float, default=7.0)
     trade.add_argument("--min-odds", type=int, default=60)
+    trade.add_argument("--max-odds", type=int, default=100,
+                       help="skip entries priced above this (cents); 100 = no cap")
+    trade.add_argument("--contracts", type=int, default=0,
+                       help="fixed contracts per order (0 = size by --stake dollars)")
     trade.add_argument("--min-balance", type=float, default=20.0,
                        help="stop trading if balance would fall below this (dollars)")
     trade.add_argument("--max-daily-loss", type=float, default=15.0,
@@ -101,6 +107,8 @@ def main(argv: list[str] | None = None) -> int:
             entry_lead_s=int(args.entry_lead_min * 60),
             stake=args.stake,
             min_odds=args.min_odds,
+            max_odds=args.max_odds,
+            contracts=args.contracts,
         )
         trader = LiveTrader(
             cfg,
