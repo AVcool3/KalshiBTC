@@ -427,7 +427,9 @@ class LiveTrader:
             return None
         opp = "no" if side == "yes" else "yes"
         max_opp = (100 - self.lock_at) / 100.0  # e.g. lock 90 -> pay <= $0.10
-        while time.time() < close_ts - 8:
+        remaining = float(contracts)
+        last: Optional[TickOutcome] = None
+        while time.time() < close_ts - 8 and remaining >= 1:
             time.sleep(min(poll_s, max(1.0, close_ts - 8 - time.time())))
             try:
                 mk = self.client.get(f"/markets/{ticker}").get("market", {})
@@ -437,15 +439,17 @@ class LiveTrader:
                 continue
             if not 0 < opp_ask <= max_opp:
                 continue
-            out = self._place(ticker, opp, ask_str, int(contracts), buffer_cents=1.0)
+            out = self._place(ticker, opp, ask_str, int(remaining), buffer_cents=1.0)
             if out.action == "order" and out.contracts and out.contracts > 0:
                 out.action = "lock"
-                out.detail = f"profit-lock: bought {out.contracts:g}x {opp.upper()} at {out.price:.1f}c"
+                out.detail = (f"profit-lock: bought {out.contracts:g}x {opp.upper()} at "
+                              f"{out.price:.1f}c ({remaining - float(out.contracts):g} left to pair)")
                 self.journal(out)
                 print(f"[{datetime.now(timezone.utc):%H:%M:%S}] lock: {out.detail}", flush=True)
-                return out
-            # unfilled or error: stay in the loop and try again on the next poll
-        return None
+                remaining -= float(out.contracts)
+                last = out
+            # thin books fill locks in slivers — keep working the remainder
+        return last
 
     def next_decision_ts(self, now: Optional[float] = None) -> int:
         """The next quarter-hour close minus the entry lead."""
