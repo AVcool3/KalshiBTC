@@ -59,6 +59,7 @@ class LiveTrader:
         journal_path: str = "live/journal.jsonl",
         min_balance_cents: int = 2000,  # stop trading below $20
         max_daily_loss: float = 15.0,  # halt entries for the UTC day (0 = off)
+        lock_at: int = 0,  # profit-lock: buy the opposite side when ours >= this (cents; 0 = off)
         stake_step: float = 0.0,  # grow stake by this per stake_per of growth (0 = fixed)
         stake_per: float = 20.0,
         stake_cap: float = 20.0,  # hard ceiling on stake, bug blast-radius guard
@@ -70,11 +71,13 @@ class LiveTrader:
         self.journal_path = journal_path
         self.min_balance_cents = min_balance_cents
         self.max_daily_loss = max_daily_loss
+        self.lock_at = lock_at
         self.stake_step = stake_step
         self.stake_per = stake_per
         self.stake_cap = stake_cap
         self.live = live
         self._result_cache: dict[str, str] = {}  # settled ticker -> "yes"/"no"
+        self._last_market = None  # Market of the most recent decision
         self.anchor_path = os.path.join(os.path.dirname(journal_path) or ".", "stake_anchor.json")
         self.client = KalshiClient(base_url=base_url, signer=signer, cache_dir=None)
         if live and signer is None:
@@ -127,7 +130,7 @@ class LiveTrader:
                     except ValueError:
                         continue
                     if (
-                        e.get("action") == "order"
+                        e.get("action") in ("order", "lock")
                         and e.get("live")
                         and str(e.get("ts", "")).startswith(day)
                         and e.get("ticker") and e.get("side") and e.get("contracts")
@@ -138,49 +141,52 @@ class LiveTrader:
         return entries
 
     def realized_today(self, day: Optional[str] = None) -> float:
-        """Net P&L of today's settled entries (order-priced; IOC fills may
-        be slightly better, so this under-counts wins if anything)."""
-        day = day or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        total = 0.0
+        """Net P&L of today's entries and locks, pair-aware.
+
+        A market where we hold n YES and n NO (entry + profit-lock) is worth
+        $n at settlement regardless of result, so it counts as realized the
+        moment the lock fills. Unpaired contracts wait for the market result.
+        """
+        if day is None:
+            day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        per_market: dict[str, dict] = {}
         for e in self._entries_for_day(day):
-            ticker = e["ticker"]
-            result = self._result_cache.get(ticker)
-            if result is None:
-                m = self.client.get(f"/markets/{ticker}").get("market", {})
-                result = (m.get("result") or "").strip().lower()
-                if result in ("yes", "no"):
-                    self._result_cache[ticker] = result
-            if result not in ("yes", "no"):
-                continue  # still open
+            m = per_market.setdefault(e["ticker"], {"yes": 0.0, "no": 0.0, "cost": 0.0, "fees": 0.0})
             contracts = float(e["contracts"])
             price = float(e["price"])
-            cost = contracts * price / 100.0
-            fee = self.cfg.fee_for(contracts, int(round(price)))
-            won = result == e["side"]
-            total += (contracts - cost - fee) if won else (-cost - fee)
+            m[e["side"]] += contracts
+            m["cost"] += contracts * price / 100.0
+            m["fees"] += self.cfg.fee_for(contracts, int(round(price)))
+
+        total = 0.0
+        for ticker, m in per_market.items():
+            pairs = min(m["yes"], m["no"])
+            residual_side = "yes" if m["yes"] > m["no"] else "no"
+            residual = abs(m["yes"] - m["no"])
+            value = pairs
+            if residual > 1e-9:
+                result = self._result_cache.get(ticker)
+                if result is None:
+                    mk = self.client.get(f"/markets/{ticker}").get("market", {})
+                    result = (mk.get("result") or "").strip().lower()
+                    if result in ("yes", "no"):
+                        self._result_cache[ticker] = result
+                if result not in ("yes", "no"):
+                    continue  # still open — count nothing for this market yet
+                value += residual if result == residual_side else 0.0
+            total += value - m["cost"] - m["fees"]
         return total
+
+    def already_entered(self, ticker: str) -> bool:
+        """No-flip / no-re-entry guard: one entry per market, ever."""
+        day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        return any(e["ticker"] == ticker for e in self._entries_for_day(day))
 
     # --------------------------------------------------------- stake ladder
     def bot_realized_pnl(self) -> float:
-        """Cumulative realized P&L of the bot's own journaled entries, all
-        days. Manual trading on the account is invisible here by design."""
-        total = 0.0
-        for e in self._entries_for_day(""):  # "" prefix matches every day
-            ticker = e["ticker"]
-            result = self._result_cache.get(ticker)
-            if result is None:
-                m = self.client.get(f"/markets/{ticker}").get("market", {})
-                result = (m.get("result") or "").strip().lower()
-                if result in ("yes", "no"):
-                    self._result_cache[ticker] = result
-            if result not in ("yes", "no"):
-                continue
-            contracts = float(e["contracts"])
-            price = float(e["price"])
-            cost = contracts * price / 100.0
-            fee = self.cfg.fee_for(contracts, int(round(price)))
-            total += (contracts - cost - fee) if result == e["side"] else (-cost - fee)
-        return total
+        """Cumulative realized P&L of the bot's own journaled trades, all
+        days, pair-aware. Manual account trading is invisible by design."""
+        return self.realized_today(day="")  # "" ts-prefix matches every day
 
     def stake_for(self, bot_pnl: Optional[float]) -> float:
         """Base stake plus stake_step per full stake_per of the bot's own
@@ -209,6 +215,10 @@ class LiveTrader:
         found = self.current_market(now)
         if not found:
             return TickOutcome("skip", "no open 15-minute market found")
+        if self.live and self.already_entered(found["market"].ticker):
+            return TickOutcome("skip", "already entered this market (no re-entry, no flips)",
+                               found["market"].ticker)
+        self._last_market = found["market"]  # for the lock watcher
         m, raw = found["market"], found["raw"]
 
         seconds_to_close = m.close_ts - now
@@ -405,6 +415,38 @@ class LiveTrader:
         print(f"[{datetime.now(timezone.utc):%H:%M:%S}] {outcome.action}: {outcome.detail}", flush=True)
         return outcome
 
+    def watch_for_lock(self, ticker: str, side: str, contracts: float, close_ts: int,
+                       poll_s: float = 15.0) -> Optional[TickOutcome]:
+        """After an entry, poll until close; when our side is worth >= lock_at
+        cents, buy the opposite side to lock the pair at ~$1 payout.
+
+        This is the ONLY way the bot ever touches the opposite side, and only
+        for exactly the held count — a profit-lock, never a flip.
+        """
+        if not self.lock_at or contracts < 1:
+            return None
+        opp = "no" if side == "yes" else "yes"
+        max_opp = (100 - self.lock_at) / 100.0  # e.g. lock 90 -> pay <= $0.10
+        while time.time() < close_ts - 8:
+            time.sleep(min(poll_s, max(1.0, close_ts - 8 - time.time())))
+            try:
+                mk = self.client.get(f"/markets/{ticker}").get("market", {})
+                ask_str = mk.get(f"{opp}_ask_dollars") or ""
+                opp_ask = float(ask_str)
+            except Exception:  # noqa: BLE001 - transient; keep watching
+                continue
+            if not 0 < opp_ask <= max_opp:
+                continue
+            out = self._place(ticker, opp, ask_str, int(contracts), buffer_cents=1.0)
+            if out.action == "order" and out.contracts and out.contracts > 0:
+                out.action = "lock"
+                out.detail = f"profit-lock: bought {out.contracts:g}x {opp.upper()} at {out.price:.1f}c"
+                self.journal(out)
+                print(f"[{datetime.now(timezone.utc):%H:%M:%S}] lock: {out.detail}", flush=True)
+                return out
+            # unfilled or error: stay in the loop and try again on the next poll
+        return None
+
     def next_decision_ts(self, now: Optional[float] = None) -> int:
         """The next quarter-hour close minus the entry lead."""
         now = now or time.time()
@@ -426,5 +468,15 @@ class LiveTrader:
             print(f"next decision {datetime.fromtimestamp(target, tz=timezone.utc):%H:%M:%S}Z "
                   f"({wait/60:.1f}m)", flush=True)
             time.sleep(max(1.0, wait))
-            self.tick()
+            outcome = self.tick()
+            if (
+                self.lock_at
+                and outcome.action == "order"
+                and outcome.contracts
+                and getattr(self, "_last_market", None) is not None
+                and self._last_market.ticker == outcome.ticker
+            ):
+                self.watch_for_lock(
+                    outcome.ticker, outcome.side, outcome.contracts, self._last_market.close_ts
+                )
             time.sleep(2)  # step past the decision second before recomputing

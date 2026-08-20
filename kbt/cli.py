@@ -72,6 +72,8 @@ def main(argv: list[str] | None = None) -> int:
                        help="skip entries priced above this (cents); 100 = no cap")
     trade.add_argument("--contracts", type=int, default=0,
                        help="fixed contracts per order (0 = size by --stake dollars)")
+    trade.add_argument("--lock-at", type=int, default=0,
+                       help="profit-lock: buy the opposite side when ours reaches this many cents (0 = off)")
     trade.add_argument("--min-balance", type=float, default=20.0,
                        help="stop trading if balance would fall below this (dollars)")
     trade.add_argument("--max-daily-loss", type=float, default=15.0,
@@ -118,6 +120,7 @@ def main(argv: list[str] | None = None) -> int:
             journal_path=args.journal,
             min_balance_cents=int(args.min_balance * 100),
             max_daily_loss=args.max_daily_loss,
+            lock_at=args.lock_at,
             stake_step=args.stake_step,
             stake_per=args.stake_per,
             stake_cap=args.stake_cap,

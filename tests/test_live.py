@@ -119,3 +119,76 @@ def test_stake_ladder_now_tracks_bot_pnl_not_balance(tmp_path):
 def test_stake_cap_still_bounds_ladder(tmp_path):
     t = trader(journal_path=str(tmp_path / "j.jsonl"), stake_step=1.0, stake_per=20.0, stake_cap=8.0)
     assert t.stake_for(1_000_000.0) == 8.0
+
+
+def _journal(tmp_path, entries):
+    import json
+    p = tmp_path / "journal.jsonl"
+    p.write_text("".join(json.dumps(e) + "\n" for e in entries))
+    return str(p)
+
+
+def _entry(day, ticker, side, price, contracts, action="order"):
+    return {"ts": f"{day}T01:00:00+00:00", "live": True, "action": action,
+            "ticker": ticker, "side": side, "price": price, "contracts": contracts}
+
+
+def test_locked_pair_counts_as_realized_without_a_result(tmp_path):
+    from datetime import datetime, timezone
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # entry 10 YES @ 70c, lock 10 NO @ 8c -> pairs pay $10 for $7.80 + fees
+    j = _journal(tmp_path, [
+        _entry(day, "M1", "yes", 70.0, 10),
+        _entry(day, "M1", "no", 8.0, 10, action="lock"),
+    ])
+    t = trader(journal_path=j)
+    t.live = True
+    t.client = _StubClient({})  # result unknown — must not matter for a full pair
+    fees = StrategyConfig().fee_for(10, 70) + StrategyConfig().fee_for(10, 8)
+    assert t.realized_today() == pytest.approx(10 - 7.80 - fees)
+
+
+def test_unpaired_entry_still_waits_for_result(tmp_path):
+    from datetime import datetime, timezone
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    j = _journal(tmp_path, [_entry(day, "M2", "no", 75.0, 8)])
+    t = trader(journal_path=j)
+    t.live = True
+    t.client = _StubClient({})  # unsettled -> nothing realized
+    assert t.realized_today() == 0.0
+    t.client = _StubClient({"M2": "no"})
+    t._result_cache.clear()
+    fees = StrategyConfig().fee_for(8, 75)
+    assert t.realized_today() == pytest.approx(8 - 6.0 - fees)
+
+
+def test_partial_lock_pairs_and_residual(tmp_path):
+    from datetime import datetime, timezone
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # 10 YES @ 70c, locked only 6 NO @ 10c; result NO -> 6 pairs pay, 4 yes lose
+    j = _journal(tmp_path, [
+        _entry(day, "M3", "yes", 70.0, 10),
+        _entry(day, "M3", "no", 10.0, 6, action="lock"),
+    ])
+    t = trader(journal_path=j)
+    t.live = True
+    t.client = _StubClient({"M3": "no"})
+    fees = StrategyConfig().fee_for(10, 70) + StrategyConfig().fee_for(6, 10)
+    assert t.realized_today() == pytest.approx(6 + 0 - 7.0 - 0.60 - fees)
+
+
+def test_no_reentry_guard(tmp_path):
+    from datetime import datetime, timezone
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    j = _journal(tmp_path, [_entry(day, "KXBTC15M-X", "yes", 70.0, 10)])
+    t = trader(journal_path=j)
+    assert t.already_entered("KXBTC15M-X")
+    assert not t.already_entered("KXBTC15M-Y")
+
+
+def test_lock_threshold_price_mapping():
+    # lock_at 90 means we pay at most 10c for the opposite side
+    t = trader(lock_at=90)
+    assert (100 - t.lock_at) / 100.0 == pytest.approx(0.10)
+    # book mapping for the lock leg: buying NO at 8c with 1c buffer -> ask at 0.91
+    assert LiveTrader.book_order("no", "0.0800", 1.0) == ("ask", "0.9100")
