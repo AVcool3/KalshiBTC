@@ -174,7 +174,8 @@ class Paper:
         while True:
             now = time.time()
             next_close = (int(now) // 900 + 1) * 900
-            target = next_close - 300
+            # offset 20s after the live trader's T-5 tick to avoid contention
+            target = next_close - 300 + 20
             if target <= now:
                 target += 900
             time.sleep(max(1.0, target - now))
