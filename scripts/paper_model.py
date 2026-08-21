@@ -139,7 +139,8 @@ class Paper:
                 side_bid = float(mk.get(f"{side}_bid_dollars") or "nan")
             except ValueError:
                 continue
-            if opp_ask == opp_ask and opp_ask <= (100 - LOCK_AT) / 100.0:
+            lock_px = max(LOCK_AT / 100.0, e_px + 0.08)  # entry-relative floor: >=8c margin
+            if opp_ask == opp_ask and opp_ask <= 1.0 - lock_px:
                 pnl = CONTRACTS * (1 - e_px - opp_ask) - fee(CONTRACTS, e_px) - fee(CONTRACTS, opp_ask)
                 log({"action": "lock", "ticker": m.ticker, "side": opp, "price": opp_ask * 100,
                      "contracts": CONTRACTS, "pnl": round(pnl, 2),
