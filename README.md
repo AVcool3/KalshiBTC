@@ -1,11 +1,46 @@
-# KalshiBTC — GitHub Auto-Committer
+# KalshiBTC — Daily Strategy Lab + Auto-Committer
 
-This repo contains a **GitHub auto-committer**: a GitHub Actions workflow that
-runs on a schedule, fetches the current Bitcoin price, appends it to a JSON
-log file, and **automatically commits and pushes** the update — no manual
-work needed.
+Two automated systems live in this repo:
 
-## How it works
+1. **Daily Strategy Lab** — every day, Claude invents ONE new BTC trading
+   strategy, backtests it against ~2 years of real daily price data, and
+   commits the strategy + its results to this repo automatically.
+2. **GitHub Auto-Committer** — a GitHub Actions workflow that logs the live
+   BTC price every hour and commits the update.
+
+## Daily Strategy Lab
+
+```
+Daily schedule (Claude session, 13:00 UTC)
+        │
+        ▼
+Reads RESULTS.md to see what's been tried already
+        │
+        ▼
+strategies/YYYY-MM-DD-<name>.js    ← writes ONE new strategy (commented!)
+        │
+        ▼
+node backtest/run.js strategies/<file>
+        │
+        ▼
+RESULTS.md gets a new scoreboard row  →  commit + push
+```
+
+| File | What it does |
+| --- | --- |
+| `backtest/fetch-data.js` | Downloads ~2 years of daily BTC-USD candles from Coinbase (public API, cached in `backtest/data/`). |
+| `backtest/engine.js` | The simulator: $10,000 start, all-in/all-out trades at daily close, 0.6% fee per trade. Reports return, win rate, max drawdown, and the buy-and-hold benchmark. |
+| `backtest/run.js` | The command you run: `node backtest/run.js strategies/<file>`. Prints a report and appends a row to `RESULTS.md`. |
+| `strategies/` | One file per strategy, date-prefixed. Each is heavily commented — read them to learn the idea behind each one. |
+| `RESULTS.md` | The scoreboard: every strategy ever tried, with its numbers, in one table. |
+
+Try any strategy yourself (needs Node 18+, no npm installs):
+
+```bash
+node backtest/run.js strategies/2026-09-17-sma-crossover.js
+```
+
+## Hourly price auto-committer
 
 ```
 GitHub schedule (every hour, UTC)
