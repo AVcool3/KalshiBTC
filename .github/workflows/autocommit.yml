@@ -1,0 +1,81 @@
+# =============================================================================
+# GitHub Auto-Committer Workflow
+# =============================================================================
+# This workflow runs on a schedule (and can also be triggered manually).
+# Each run it:
+#   1. Checks out the repo
+#   2. Runs scripts/autocommit.js  (fetches the current BTC price and appends
+#      it to data/btc-price-log.json)
+#   3. Commits and pushes the change back to the repo automatically
+#
+# HOW TO CHANGE THINGS:
+#   - Change how often it runs  -> edit the `cron` line below
+#   - Change WHAT gets updated  -> edit scripts/autocommit.js
+#   - Change the commit message -> edit the `git commit -m` line at the bottom
+# =============================================================================
+
+name: Auto Commit BTC Price
+
+on:
+  # `schedule` makes GitHub run this automatically.
+  # Cron format: minute hour day-of-month month day-of-week (all in UTC).
+  # "0 * * * *" = at minute 0 of every hour (i.e. once per hour).
+  # Examples you can swap in:
+  #   "*/30 * * * *"  -> every 30 minutes (GitHub's practical minimum is ~5 min,
+  #                      and scheduled runs can be delayed during busy times)
+  #   "0 */6 * * *"   -> every 6 hours
+  #   "0 0 * * *"     -> once a day at midnight UTC
+  schedule:
+    - cron: "0 * * * *"
+
+  # `workflow_dispatch` adds a "Run workflow" button in the GitHub Actions tab
+  # so you can trigger a commit manually whenever you want to test it.
+  workflow_dispatch:
+
+# The workflow needs permission to push commits back to the repo.
+# `contents: write` grants that to the built-in GITHUB_TOKEN.
+permissions:
+  contents: write
+
+jobs:
+  autocommit:
+    runs-on: ubuntu-latest
+
+    steps:
+      # --- Step 1: Get a copy of the repo onto the runner -------------------
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # --- Step 2: Install Node.js so we can run our script -----------------
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20" # LTS version; bump this if you upgrade later
+
+      # --- Step 3: Run the script that updates the data file ----------------
+      # This is where the actual "work" happens. Swap this script out (or add
+      # more `run:` lines) if you want the auto-committer to do something else.
+      - name: Fetch BTC price and update log
+        run: node scripts/autocommit.js
+
+      # --- Step 4: Commit and push the changes ------------------------------
+      # We configure a bot identity for the commit, then only commit if the
+      # script actually changed something (otherwise `git commit` would fail
+      # on an empty change set).
+      - name: Commit and push if there are changes
+        run: |
+          # Identity that will show up as the commit author on GitHub
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Stage everything the script touched
+          git add -A
+
+          # `git diff --cached --quiet` exits 0 when there is NOTHING staged,
+          # so we only commit/push when there IS a real change.
+          if git diff --cached --quiet; then
+            echo "No changes to commit this run."
+          else
+            git commit -m "chore: auto-update BTC price log [skip ci]"
+            git push
+          fi
