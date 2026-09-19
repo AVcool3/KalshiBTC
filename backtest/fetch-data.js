@@ -119,14 +119,19 @@ async function refreshData() {
 }
 
 /**
- * Returns cached candles, refreshing first if the cache is missing or older
- * than maxAgeHours (default 20h, so a daily run always gets fresh data).
+ * Returns cached candles, refreshing first if the cache is missing or stale.
+ * Staleness is judged by the NEWEST CANDLE'S OWN TIMESTAMP (not the file's
+ * modified-time, which resets whenever the repo is freshly cloned): if the
+ * latest candle is more than maxAgeHours old, we re-download. Daily candles
+ * are ~24h apart, so 36h means "refresh once we're a full day behind".
  */
-async function loadData(maxAgeHours = 20) {
+async function loadData(maxAgeHours = 36) {
   if (fs.existsSync(DATA_FILE)) {
-    const ageHours = (Date.now() - fs.statSync(DATA_FILE).mtimeMs) / 3600000;
-    if (ageHours < maxAgeHours) {
-      return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+    const candles = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+    const newest = candles[candles.length - 1];
+    const ageHours = (Date.now() / 1000 - newest.time) / 3600;
+    if (candles.length > 0 && ageHours < maxAgeHours) {
+      return candles;
     }
   }
   return refreshData();
