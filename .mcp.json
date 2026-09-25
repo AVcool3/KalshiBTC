@@ -1,0 +1,22 @@
+{
+  "_comment": [
+    "Project-scoped MCP servers for Claude Code. Any Claude Code session opened",
+    "in this repo (local CLI, web, desktop) picks these up automatically.",
+    "",
+    "firecrawl: gives the agent web search + scraping tools (firecrawl_search,",
+    "firecrawl_scrape, firecrawl_crawl, ...). The API key is NOT stored here.",
+    "${FIRECRAWL_API_KEY} is expanded from the environment at startup:",
+    "  - locally:  put FIRECRAWL_API_KEY=... in your shell or a .env file",
+    "  - on the web: add it as an environment variable in the cloud",
+    "    environment settings (title bar menu -> Edit environment).",
+    "",
+    "Prefer OAuth instead of a key? Swap the url for",
+    "https://mcp.firecrawl.dev/v2/mcp-oauth and run `claude mcp login firecrawl`."
+  ],
+  "mcpServers": {
+    "firecrawl": {
+      "type": "http",
+      "url": "https://mcp.firecrawl.dev/${FIRECRAWL_API_KEY}/v2/mcp"
+    }
+  }
+}

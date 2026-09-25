@@ -106,6 +106,48 @@ useEffect(() => {
 }, []);
 ```
 
+## Web search & scraping (Firecrawl)
+
+[Firecrawl](https://firecrawl.dev) gives both you and the Claude agent a way to
+search the web and turn pages into clean markdown — useful for news/sentiment
+inputs to a strategy, or for the daily lab to research an idea before coding it.
+
+```
+FIRECRAWL_API_KEY  (env var or .env file — never committed)
+        │
+        ├──▶ .mcp.json             ← Claude Code loads Firecrawl as MCP tools
+        │                            (firecrawl_search, firecrawl_scrape, ...)
+        │
+        └──▶ scripts/firecrawl.js  ← plain-Node helper for your own code
+```
+
+| File | What it does |
+| --- | --- |
+| `.mcp.json` | Project-scoped MCP config. Any Claude Code session opened in this repo automatically gets Firecrawl tools. Reads the key from `${FIRECRAWL_API_KEY}`. |
+| `scripts/firecrawl.js` | `search(query)` and `scrape(url)` helpers built on Node's `fetch`, no npm installs. Also works as a CLI. |
+| `.env.example` | Template for the git-ignored `.env` file that holds the key. |
+
+Setup:
+
+1. Copy `.env.example` to `.env` and paste your key from
+   <https://firecrawl.dev/app/settings?tab=api-keys>.
+   For Claude Code on the web, add `FIRECRAWL_API_KEY` as an environment
+   variable in the cloud environment settings instead (title bar menu → Edit).
+2. Try it:
+
+```bash
+node scripts/firecrawl.js search "bitcoin ETF inflows"
+node scripts/firecrawl.js scrape https://www.coindesk.com/price/bitcoin
+```
+
+Use it in a strategy or script:
+
+```js
+const { search, scrape } = require("./scripts/firecrawl");
+const hits = await search("bitcoin news", { limit: 5, tbs: "qdr:d" }); // past day
+const page = await scrape(hits[0].url); // page.markdown
+```
+
 ## Notes / gotchas
 
 - Scheduled workflows run in **UTC** and can be delayed a few minutes during
