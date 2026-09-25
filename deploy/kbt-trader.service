@@ -1,0 +1,33 @@
+# systemd unit for the live trader.
+#
+#   sudo cp deploy/kbt-trader.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now kbt-trader
+#   journalctl -u kbt-trader -f
+#
+# Remove --live to run it as a dry-run paper trader first.
+
+[Unit]
+Description=Kalshi BTC 15-min T-7 trader
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/KalshiBTC
+# Credentials: keep them in a root-readable env file, not in this unit.
+#   /etc/kbt/env should contain:
+#     KALSHI_KEY_ID=<your key uuid>
+#     KALSHI_PRIVATE_KEY_PATH=/etc/kbt/kalshi.pem
+EnvironmentFile=/etc/kbt/env
+ExecStart=/usr/bin/python3 -m kbt trade --live --min-balance 20
+Restart=always
+RestartSec=30
+# The strategy decides once per 15 minutes; nothing here needs privileges.
+User=kbt
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/KalshiBTC/live
+
+[Install]
+WantedBy=multi-user.target
