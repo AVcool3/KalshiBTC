@@ -1,0 +1,470 @@
+<title>KalshiBTC Strategy Lab</title>
+
+<!-- ===========================================================================
+  KalshiBTC Strategy Lab dashboard
+  - Built with React 18 (UMD builds from CDN) + Babel standalone so JSX works
+    directly in the browser with no build step. Open this file, read the JSX,
+    change it, refresh: that's the whole workflow.
+  - All 26 backtest results are embedded in the DATA array below (snapshot of
+    RESULTS.md as of 2026-10-13). To refresh after new daily runs, update DATA.
+  - Charts are hand-drawn SVG/CSS so you can see exactly how they work; no
+    charting library to learn.
+============================================================================ -->
+
+<!-- Fonts: Archivo for headings/numbers, system stack for body text -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&display=swap">
+
+<style>
+  /* Layout concept: summary first (4 stat tiles), then the two charts
+     (risk/return scatter + excess-return bars), then the full sortable table. */
+  :root {
+    --bg:        #f7f7f5;   /* page background - warm paper grey */
+    --surface:   #fcfcfb;   /* cards and chart surfaces */
+    --ink:       #171716;   /* primary text */
+    --ink-2:     #52514e;   /* secondary text */
+    --ink-3:     #8a8884;   /* muted text / axis labels */
+    --line:      #e3e2de;   /* hairline borders and grid lines */
+    --accent:    #2a78d6;   /* interactive accents (sort arrows, focus) */
+    --pos:       #1baf7a;   /* beat the benchmark */
+    --pos-soft:  #1baf7a22; /* translucent fill for positive chips */
+    --neg:       #e34948;   /* trailed the benchmark */
+    --neg-soft:  #e3494822;
+    --gold:      #a8741a;   /* champion marker (readable on light) */
+    --font-head: "Archivo", system-ui, sans-serif;
+    --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141413; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7;
+      --ink-3: #8a8884; --line: #32312f; --accent: #3987e5;
+      --pos: #199e70; --pos-soft: #199e7033; --neg: #e66767; --neg-soft: #e6676733;
+      --gold: #e3a94b; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141413; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7;
+    --ink-3: #8a8884; --line: #32312f; --accent: #3987e5;
+    --pos: #199e70; --pos-soft: #199e7033; --neg: #e66767; --neg-soft: #e6676733;
+    --gold: #e3a94b; color-scheme: dark;
+  }
+
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: var(--font-body); font-size: 14px; line-height: 1.5;
+    padding-inline: 16px; padding-block: 8px;
+  }
+  #root { max-width: 1060px; margin: 0 auto; }
+
+  /* ---- header ---- */
+  header.lab { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding-block: 18px 6px; }
+  header.lab h1 { font: 700 26px/1.1 var(--font-head); margin: 0; letter-spacing: -0.01em; }
+  header.lab .asof { color: var(--ink-3); font-size: 13px; }
+  header.lab p.sub { flex-basis: 100%; margin: 2px 0 0; color: var(--ink-2); max-width: 62ch; }
+
+  /* ---- stat tiles ---- */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-block: 16px; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+  .tile .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-3); }
+  .tile .v { font: 600 24px/1.2 var(--font-head); font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .tile .d { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+
+  /* ---- chart cards ---- */
+  .charts { display: grid; grid-template-columns: 1fr; gap: 14px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
+  .card h2 { font: 600 15px/1.3 var(--font-head); margin: 0 0 2px; }
+  .card .hint { font-size: 12px; color: var(--ink-3); margin: 0 0 10px; }
+
+  /* legend row shared by both charts */
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--ink-2); margin-bottom: 8px; }
+  .legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+
+  /* ---- excess-return bar rows (plain CSS, no SVG needed) ---- */
+  .bars { display: grid; gap: 3px; }
+  .barrow { display: grid; grid-template-columns: minmax(110px, 170px) 1fr 58px; align-items: center; gap: 8px; min-width: 0; }
+  .barrow .name { font-size: 12px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+  .barrow .name .crown { color: var(--gold); font-weight: 600; }
+  .track { position: relative; height: 16px; }
+  .track::before { /* the zero line every bar grows from */
+    content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--line);
+  }
+  .bar { position: absolute; top: 2px; height: 12px; border-radius: 0 4px 4px 0; }
+  .bar.neg { border-radius: 4px 0 0 4px; }
+  .barrow .val { font: 600 12px/1 var(--font-head); font-variant-numeric: tabular-nums; }
+  .barrow:hover .name { color: var(--ink); }
+
+  /* ---- scatter ---- */
+  .scatterwrap { position: relative; }
+  .scatterwrap svg { width: 100%; height: auto; display: block; }
+  .tip { /* tooltip that follows the hovered point */
+    position: absolute; pointer-events: none; z-index: 2;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
+    padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+    max-width: 240px;
+  }
+  .tip b { font-family: var(--font-head); }
+  .tip .row { display: flex; justify-content: space-between; gap: 12px; font-variant-numeric: tabular-nums; }
+  .tip .idea { color: var(--ink-2); margin-top: 4px; }
+
+  /* ---- table ---- */
+  .tablebar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .tablebar input {
+    flex: 1 1 220px; min-width: 0; background: var(--bg); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; font: inherit;
+  }
+  .tablebar input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .tablescroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font: 600 11px/1.3 var(--font-head); text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); white-space: nowrap; }
+  th button { all: unset; cursor: pointer; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; }
+  th button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+  th .arrow { color: var(--accent); }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td .chip { display: inline-block; border-radius: 10px; padding: 1px 8px; font: 600 11px/1.6 var(--font-head); }
+  td .chip.pos { background: var(--pos-soft); color: var(--pos); }
+  td .chip.neg { background: var(--neg-soft); color: var(--neg); }
+  td.idea { color: var(--ink-2); min-width: 260px; max-width: 420px; }
+  tr.champ td.strat { color: var(--gold); font-weight: 600; }
+
+  /* ---- lessons footer ---- */
+  .lessons { margin-block: 18px 24px; }
+  .lessons h2 { font: 600 15px/1.3 var(--font-head); margin: 0 0 8px; }
+  .lessons ol { margin: 0; padding-left: 20px; color: var(--ink-2); display: grid; gap: 5px; max-width: 70ch; }
+
+  @media (max-width: 480px) {
+    .barrow { grid-template-columns: minmax(90px, 110px) 1fr 52px; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .bar { transition: width 0.15s ease; }
+  }
+</style>
+
+<div id="root"></div>
+
+<!-- React + Babel from CDN. Babel compiles the JSX in the script below in the
+     browser, so there is no build step - edit and refresh. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useMemo } = React;
+
+/* ============================================================================
+   DATA - one row per strategy, copied from RESULTS.md (as of 2026-10-13).
+   ret / bh / dd / win are percentages. Each strategy is compared against
+   buy & hold over ITS OWN backtest window (the data refreshes daily, so the
+   benchmark differs slightly between rows - that's why bh varies).
+   To add a new day's result: append an object here, nothing else to touch.
+============================================================================ */
+const DATA = [
+  { date: "09-17", name: "SMA Crossover 10/30",        family: "trend",     ret:   2.88, bh: 23.77, trades:  15, win:  33, dd: -42.31, idea: "Buy when the 10-day average crosses above the 30-day, sell when it crosses back below." },
+  { date: "09-19", name: "RSI Mean Reversion 30/55",   family: "mean-rev",  ret:   1.53, bh: 28.11, trades:  16, win:  81, dd: -40.42, idea: "Buy panic dips (RSI < 30), sell the recovery (RSI > 55)." },
+  { date: "09-20", name: "Donchian Breakout 20/10",    family: "breakout",  ret:  40.50, bh: 27.14, trades:  14, win:  43, dd: -26.46, idea: "Turtle momentum: buy a 20-day-high close, sell a 10-day-low close. Later shown to be parameter luck." },
+  { date: "09-21", name: "Volume Surge 1.5x/20",       family: "volume",    ret: -12.28, bh: 34.21, trades:  24, win:  33, dd: -49.22, idea: "Buy up-days on 1.5x average volume, sell down-days on surging volume. Volume spikes mark tops as often as starts." },
+  { date: "09-21", name: "Vol Regime Hybrid",          family: "combo",     ret:  -4.36, bh: 34.21, trades:  15, win:  20, dd: -23.93, idea: "Quiet market: buy RSI dips. Loud market: Donchian breakouts. Four documented iterations; dip-buying never added value." },
+  { date: "09-22", name: "Squeeze Breakout",           family: "vol",       ret: -12.66, bh: 36.09, trades:   4, win:   0, dd: -17.30, idea: "Only buy breakouts erupting from low-volatility squeezes. Too picky: 4 signals in 2 years, all fakeouts." },
+  { date: "09-23", name: "Absolute Momentum 90d",      family: "momentum",  ret:  -3.77, bh: 32.94, trades:   5, win:  40, dd: -29.73, idea: "Hold while price is above its level 90 days ago. Too slow for V-shaped corrections: sold bottoms, re-bought higher." },
+  { date: "09-24", name: "Weekday Hold Mon-Fri",       family: "calendar",  ret: -73.53, bh: 32.67, trades: 103, win:  54, dd: -81.36, idea: "Hold Mon-Fri, cash on weekends. Won 54% of weeks and still got wiped out by fees on 103 trades." },
+  { date: "09-25", name: "Donchian Breakout 55/20",    family: "breakout",  ret: -29.49, bh: 29.71, trades:   9, win:  44, dd: -41.36, idea: "Same turtle idea, slower windows. The 70-point swing vs 20/10 proved the champion's edge was parameter luck." },
+  { date: "09-26", name: "Donchian Ensemble 5x",       family: "breakout",  ret:   7.75, bh: 27.64, trades:  15, win:  33, dd: -33.24, idea: "Five Donchian systems vote. Averaging the parameter neighborhood: positive but far below holding." },
+  { date: "09-27", name: "Walk-Forward Donchian",      family: "breakout",  ret:  -5.68, bh: 28.63, trades:  11, win:  36, dd: -26.46, idea: "Every 30 days adopt the recently-best Donchian pair. Recent winners did not stay winners." },
+  { date: "09-29", name: "Trend Committee 2-of-3",     family: "combo",     ret:  -8.60, bh: 33.21, trades:  12, win:  42, dd: -26.41, idea: "SMA, Donchian and momentum vote. All three are trend followers, so they got fooled together." },
+  { date: "09-30", name: "Circuit Breaker Hold",       family: "breaker",   ret:  55.32, bh: 40.49, trades:   9, win:  44, dd: -35.15, idea: "Long by default; sell after a -5% day, sit out 10 days, buy back. Parameter-robust and validated on 2020-2022 (+486% vs +131%).", champ: true },
+  { date: "10-01", name: "Breaker + Rebound Re-entry", family: "breaker",   ret:  39.52, bh: 37.65, trades:  10, win:  40, dd: -39.92, idea: "Champion plus early re-entry on a +5% day. Dead-cat bounces made it worse than the plain breaker." },
+  { date: "10-02", name: "Red Streak Reversal 4/2",    family: "mean-rev",  ret:   9.88, bh: 42.64, trades:  23, win:  78, dd: -24.37, idea: "Buy the 4th straight red day, sell after 2 green days. Real bounce signal, eaten by fees and missed rallies." },
+  { date: "10-03", name: "Chandelier Exit 3xATR",      family: "trend",     ret:  25.41, bh: 36.63, trades:  10, win:  40, dd: -33.88, idea: "Volatility-scaled trailing stop. Common exits bleed; the breaker's rare exits preserve." },
+  { date: "10-04", name: "Drawdown Bargain 25/5",      family: "mean-rev",  ret:  19.66, bh: 37.26, trades:   1, win: 100, dd: -39.64, idea: "Buy only 25%-off corrections, sell the full recovery. Perfect signal, wrong default posture: cash by default loses." },
+  { date: "10-05", name: "Euphoria Breaker",           family: "breaker",   ret: -20.22, bh: 37.09, trades:  13, win:  69, dd: -57.57, idea: "The champion's mirror: sell after +5% days. Failed badly, proving the breaker edge is crash-specific." },
+  { date: "10-06", name: "MACD Crossover 12/26/9",     family: "trend",     ret: -36.26, bh: 38.40, trades:  30, win:  30, dd: -48.45, idea: "The EMA cousin of the SMA crossover. Faster signals = twice the trades = twice the whipsaw." },
+  { date: "10-07", name: "Breaker Ensemble 3x",        family: "breaker",   ret:  43.41, bh: 34.20, trades:   9, win:  44, dd: -39.09, idea: "Three breakers (-4/-5/-6%) vote. Confirms the champion's mechanism doesn't hinge on one magic number." },
+  { date: "10-08", name: "Calm-Sensing Breaker",       family: "breaker",   ret:  47.53, bh: 36.06, trades:   9, win:  44, dd: -40.84, idea: "Re-enter when the market measurably calms instead of a fixed clock. Collapsed out-of-sample: calm lulls appear mid-storm." },
+  { date: "10-09", name: "Winter Hold Oct-Mar",        family: "calendar",  ret: -23.03, bh: 37.66, trades:   2, win:  50, dd: -58.05, idea: "'Sell in May' for crypto. Scored +307% on 2020-2022, then inverted: seasonality is noise without a mechanism." },
+  { date: "10-10", name: "200-Day Line",               family: "trend",     ret:  24.78, bh: 32.34, trades:   1, win: 100, dd: -15.58, idea: "Hold above the 200-day average, cash below. Trails on return but the 2nd-smallest drawdown tested: slow, cheap crash insurance." },
+  { date: "10-11", name: "Belt and Suspenders",        family: "combo",     ret:  27.42, bh: 31.37, trades:   2, win:  50, dd: -14.77, idea: "200-day line + circuit breaker stacked. Smallest drawdown on the board; +258% vs +94% out-of-sample 2019-2022." },
+  { date: "10-12", name: "Thrifty Breaker",            family: "breaker",   ret:  21.16, bh: 31.32, trades:   9, win:  33, dd: -42.33, idea: "Champion plus 'never buy back above my exit price'. Anchoring cost ~17 points: prices that run away don't come back." },
+  { date: "10-13", name: "Hammer Reversal",            family: "pattern",   ret:  -8.16, bh: 25.79, trades:  21, win:  52, dd: -42.75, idea: "Buy textbook hammer candles, hold 10 days. A 52% coin flip; candle shapes carried no information." },
+];
+
+// Derived once: excess return (strategy minus its own buy-and-hold benchmark).
+const rows = DATA.map(d => ({ ...d, excess: +(d.ret - d.bh).toFixed(2), beat: d.ret > d.bh }));
+
+/* ---- tiny formatting helpers ------------------------------------------- */
+const pct  = n => (n > 0 ? "+" : "") + n.toFixed(2) + "%";
+const pct1 = n => (n > 0 ? "+" : "") + n.toFixed(1) + "%";
+
+/* ============================================================================
+   Stat tiles - the four headline numbers.
+============================================================================ */
+function Tiles() {
+  const beat = rows.filter(r => r.beat);
+  const champ = rows.find(r => r.champ);
+  const safest = rows.reduce((a, b) => (b.dd > a.dd ? b : a)); // dd is negative; larger = shallower
+  return (
+    <div className="tiles">
+      <div className="tile">
+        <div className="k">Strategies tested</div>
+        <div className="v">{rows.length}</div>
+        <div className="d">one per day since Sep 17</div>
+      </div>
+      <div className="tile">
+        <div className="k">Beat buy &amp; hold</div>
+        <div className="v">{beat.length} <span style={{fontSize: "14px", color: "var(--ink-3)"}}>of {rows.length}</span></div>
+        <div className="d">on their own 2-year window</div>
+      </div>
+      <div className="tile">
+        <div className="k">Champion</div>
+        <div className="v" style={{color: "var(--gold)"}}>{pct1(champ.ret)}</div>
+        <div className="d">{champ.name} (vs {pct1(champ.bh)} hold)</div>
+      </div>
+      <div className="tile">
+        <div className="k">Smallest drawdown</div>
+        <div className="v">{safest.dd.toFixed(1)}%</div>
+        <div className="d">{safest.name}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================================
+   Risk / return scatter - each dot is a strategy.
+   x = max drawdown (right = shallower pain), y = total return.
+   Beat-the-benchmark strategies are filled dots; the rest are hollow rings
+   (the shape difference keeps the chart readable for colorblind viewers).
+============================================================================ */
+function Scatter() {
+  const [tip, setTip] = useState(null); // { row, px, py } while hovering
+
+  // Drawing area inside the SVG viewBox (room left for axis labels).
+  const W = 640, H = 400, L = 46, R = 14, T = 14, B = 40;
+  const xMin = -90, xMax = 0, yMin = -80, yMax = 65;
+  const x = v => L + ((v - xMin) / (xMax - xMin)) * (W - L - R);
+  const y = v => T + (1 - (v - yMin) / (yMax - yMin)) * (H - T - B);
+
+  const xTicks = [-80, -60, -40, -20, 0];
+  const yTicks = [-80, -40, 0, 40];
+  // Only a few dots get permanent labels; the rest speak through the tooltip.
+  const labeled = new Set(["Circuit Breaker Hold", "Belt and Suspenders", "Weekday Hold Mon-Fri", "Donchian Breakout 20/10"]);
+
+  return (
+    <div className="card">
+      <h2>Risk vs return</h2>
+      <p className="hint">Up and to the right is better: more return, shallower worst drawdown. Hover any dot.</p>
+      <div className="legend">
+        <span><span className="sw" style={{background: "var(--pos)"}}></span>beat its benchmark</span>
+        <span><span className="sw" style={{background: "transparent", border: "2px solid var(--neg)", borderRadius: "50%"}}></span>trailed it</span>
+        <span><span className="sw" style={{background: "var(--gold)"}}></span>champion</span>
+      </div>
+      <div className="scatterwrap">
+        <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Scatter plot of max drawdown versus total return for all strategies">
+          {/* grid + axis labels */}
+          {xTicks.map(t => (
+            <g key={"x"+t}>
+              <line x1={x(t)} x2={x(t)} y1={T} y2={H-B} stroke="var(--line)" strokeWidth="1" />
+              <text x={x(t)} y={H-B+18} textAnchor="middle" fontSize="11" fill="var(--ink-3)">{t}%</text>
+            </g>
+          ))}
+          {yTicks.map(t => (
+            <g key={"y"+t}>
+              <line x1={L} x2={W-R} y1={y(t)} y2={y(t)} stroke="var(--line)" strokeWidth={t === 0 ? 1.5 : 1} />
+              <text x={L-8} y={y(t)+4} textAnchor="end" fontSize="11" fill="var(--ink-3)">{t}%</text>
+            </g>
+          ))}
+          <text x={(L+W-R)/2} y={H-6} textAnchor="middle" fontSize="11" fill="var(--ink-2)">max drawdown (worst peak-to-trough)</text>
+          <text x={14} y={(T+H-B)/2} textAnchor="middle" fontSize="11" fill="var(--ink-2)" transform={`rotate(-90 14 ${(T+H-B)/2})`}>total return</text>
+
+          {/* dots - drawn after the grid so they sit on top */}
+          {rows.map(r => {
+            const cx = x(r.dd), cy = y(r.ret);
+            const fill = r.champ ? "var(--gold)" : r.beat ? "var(--pos)" : "none";
+            const stroke = r.beat || r.champ ? "var(--surface)" : "var(--neg)";
+            return (
+              <g key={r.name}
+                 onMouseEnter={() => setTip({ row: r, px: (cx / W) * 100, py: (cy / H) * 100 })}
+                 onMouseLeave={() => setTip(null)}>
+                {/* invisible circle = a bigger hover target than the dot itself */}
+                <circle cx={cx} cy={cy} r="13" fill="transparent" />
+                <circle cx={cx} cy={cy} r="6" fill={fill} stroke={stroke} strokeWidth="2" />
+                {labeled.has(r.name) && (
+                  /* points near the right edge get their label on the LEFT so it never clips */
+                  cx > W - 180
+                    ? <text x={cx - 10} y={cy + 4} fontSize="11" fill="var(--ink-2)" textAnchor="end">{r.name}</text>
+                    : <text x={cx + 10} y={cy + 4} fontSize="11" fill="var(--ink-2)">{r.name}</text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+        {tip && (
+          <div className="tip" style={{
+            left: `min(calc(${tip.px}% + 12px), calc(100% - 250px))`,
+            top: `calc(${tip.py}% + 10px)`,
+          }}>
+            <b>{tip.row.name}</b>
+            <div className="row"><span>Return</span><span>{pct(tip.row.ret)}</span></div>
+            <div className="row"><span>Buy &amp; hold</span><span>{pct(tip.row.bh)}</span></div>
+            <div className="row"><span>Max drawdown</span><span>{tip.row.dd.toFixed(2)}%</span></div>
+            <div className="row"><span>Trades / win rate</span><span>{tip.row.trades} / {tip.row.win}%</span></div>
+            <div className="idea">{tip.row.idea}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================================
+   Excess-return bars - strategy return minus its own buy & hold benchmark,
+   sorted best to worst. Green grows right (beat it), red grows left.
+   Plain CSS bars: each track has a center zero line, and the bar's width is
+   the |excess| as a share of the biggest value on either side.
+============================================================================ */
+function ExcessBars() {
+  const sorted = [...rows].sort((a, b) => b.excess - a.excess);
+  const maxAbs = Math.max(...rows.map(r => Math.abs(r.excess))); // scales both sides
+
+  return (
+    <div className="card">
+      <h2>Edge over buy &amp; hold</h2>
+      <p className="hint">Strategy return minus just holding BTC over the same window. The center line is "no edge".</p>
+      <div className="legend">
+        <span><span className="sw" style={{background: "var(--pos)"}}></span>added value</span>
+        <span><span className="sw" style={{background: "var(--neg)"}}></span>destroyed value</span>
+      </div>
+      <div className="bars">
+        {sorted.map(r => {
+          const half = (Math.abs(r.excess) / maxAbs) * 50; // % of the track, max 50 (one side)
+          return (
+            <div className="barrow" key={r.name} title={`${r.name}: ${pct(r.ret)} vs ${pct(r.bh)} hold`}>
+              <span className="name">{r.champ && <span className="crown">&#9733; </span>}{r.name}</span>
+              <span className="track">
+                <span className={"bar" + (r.excess < 0 ? " neg" : "")} style={{
+                  background: r.excess >= 0 ? "var(--pos)" : "var(--neg)",
+                  left:  r.excess >= 0 ? "50%" : `${50 - half}%`,
+                  width: `${half}%`,
+                }}></span>
+              </span>
+              <span className="val" style={{color: r.excess >= 0 ? "var(--pos)" : "var(--neg)"}}>{pct1(r.excess)}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================================
+   Full results table - searchable and sortable by any numeric column.
+   Click a header to sort; click again to flip direction.
+============================================================================ */
+function ResultsTable() {
+  const [query, setQuery] = useState("");
+  const [sortKey, setSortKey] = useState("date");
+  const [dir, setDir] = useState(1); // 1 = ascending, -1 = descending
+
+  const cols = [
+    { key: "date",   label: "Date" },
+    { key: "name",   label: "Strategy" },
+    { key: "ret",    label: "Return" },
+    { key: "bh",     label: "Buy & hold" },
+    { key: "excess", label: "Edge" },
+    { key: "trades", label: "Trades" },
+    { key: "win",    label: "Win %" },
+    { key: "dd",     label: "Max DD" },
+  ];
+
+  const toggle = key => {
+    if (key === sortKey) setDir(-dir);           // same column: flip direction
+    else { setSortKey(key); setDir(key === "name" || key === "date" ? 1 : -1); }
+  };
+
+  // Filter by name/idea text, then sort. useMemo avoids re-sorting on every render.
+  const view = useMemo(() => {
+    const q = query.toLowerCase();
+    const filtered = rows.filter(r => !q || (r.name + " " + r.idea + " " + r.family).toLowerCase().includes(q));
+    return filtered.sort((a, b) => {
+      const av = a[sortKey], bv = b[sortKey];
+      return (typeof av === "string" ? av.localeCompare(bv) : av - bv) * dir;
+    });
+  }, [query, sortKey, dir]);
+
+  return (
+    <div className="card">
+      <h2>All {rows.length} strategies</h2>
+      <p className="hint">Every daily experiment with its full numbers and the idea behind it. Click any column header to sort.</p>
+      <div className="tablebar">
+        <input id="strategy-search" type="search" placeholder="Filter by name, idea, or family (e.g. breaker)"
+               value={query} onChange={e => setQuery(e.target.value)} aria-label="Filter strategies" />
+        <span style={{color: "var(--ink-3)", fontSize: "12px"}}>{view.length} shown</span>
+      </div>
+      <div className="tablescroll">
+        <table>
+          <thead>
+            <tr>
+              {cols.map(c => (
+                <th key={c.key}>
+                  <button onClick={() => toggle(c.key)}>
+                    {c.label}{sortKey === c.key && <span className="arrow"> {dir === 1 ? "▴" : "▾"}</span>}
+                  </button>
+                </th>
+              ))}
+              <th>Idea &amp; what we learned</th>
+            </tr>
+          </thead>
+          <tbody>
+            {view.map(r => (
+              <tr key={r.name} className={r.champ ? "champ" : ""}>
+                <td className="num">{r.date}</td>
+                <td className="strat">{r.champ && "★ "}{r.name}</td>
+                <td className="num"><span className={"chip " + (r.ret >= 0 ? "pos" : "neg")}>{pct(r.ret)}</span></td>
+                <td className="num">{pct(r.bh)}</td>
+                <td className="num" style={{color: r.beat ? "var(--pos)" : "var(--neg)", fontWeight: 600}}>{pct1(r.excess)}</td>
+                <td className="num">{r.trades}</td>
+                <td className="num">{r.win}%</td>
+                <td className="num">{r.dd.toFixed(1)}%</td>
+                <td className="idea">{r.idea}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================================
+   The page.
+============================================================================ */
+function App() {
+  return (
+    <React.Fragment>
+      <header className="lab">
+        <h1>KalshiBTC Strategy Lab</h1>
+        <span className="asof">26 daily backtests &middot; Sep 17 &ndash; Oct 13, 2026</span>
+        <p className="sub">
+          One new BTC trading strategy invented and backtested every day against ~2 years of
+          daily Coinbase data ($10,000 start, all-in/all-out at the close, 0.6% fee per side).
+          Simulations, not trading advice.
+        </p>
+      </header>
+      <Tiles />
+      <div className="charts">
+        <Scatter />
+        <ExcessBars />
+        <ResultsTable />
+      </div>
+      <div className="lessons">
+        <h2>What 26 experiments taught the lab</h2>
+        <ol>
+          <li><b>Fees decide more than signals.</b> Every strategy trading weekly or faster lost; the weekday test won 54% of its trades and still dropped 74%.</li>
+          <li><b>Stay invested by default.</b> Only strategies that hold BTC and make the rare move an <i>exit</i> beat holding; waiting in cash for a signal loses the opportunity war.</li>
+          <li><b>One good backtest means little.</b> Donchian 20/10 scored +40% while the same idea at 55/20 lost 29%; always test the neighbors and a second era.</li>
+          <li><b>The only edge that replicated:</b> crash days cluster. Selling after a -5% day and waiting out a fixed 10 days beat holding in 2024-26 <i>and</i> on unseen 2020-22 data, and survived five "improvements" that all made it worse.</li>
+        </ol>
+      </div>
+    </React.Fragment>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
