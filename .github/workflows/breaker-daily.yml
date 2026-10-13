@@ -1,0 +1,46 @@
+# =============================================================================
+# Circuit Breaker Hold - daily paper-trading run
+# =============================================================================
+# Runs once a day shortly after the UTC close, makes the strategy's one daily
+# decision (live/breaker-daily.js), and commits the updated state + journal.
+# Currently PAPER MODE ONLY: fake $10,000, real prices, zero risk.
+# The script itself refuses to run in any other mode until a real executor
+# is built and tested, so this workflow cannot touch a real account.
+# =============================================================================
+
+name: Breaker Daily Decision
+
+on:
+  schedule:
+    - cron: "20 0 * * *"   # 00:20 UTC daily, after the daily candle completes
+  workflow_dispatch: {}      # manual "Run workflow" button for testing
+
+permissions:
+  contents: write
+
+jobs:
+  decide:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Make the daily decision (paper mode)
+        run: node live/breaker-daily.js
+
+      - name: Commit state and journal
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add live/state.json live/journal.jsonl
+          if git diff --cached --quiet; then
+            echo "No decision change to commit."
+          else
+            git commit -m "paper: daily breaker decision [skip ci]"
+            git push
+          fi
