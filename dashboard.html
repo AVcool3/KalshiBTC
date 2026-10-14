@@ -184,6 +184,7 @@ const DATA = [
   { date: "10-11", name: "Belt and Suspenders",        family: "combo",     ret:  27.42, bh: 31.37, trades:   2, win:  50, dd: -14.77, idea: "200-day line + circuit breaker stacked. Smallest drawdown on the board; +258% vs +94% out-of-sample 2019-2022." },
   { date: "10-12", name: "Thrifty Breaker",            family: "breaker",   ret:  21.16, bh: 31.32, trades:   9, win:  33, dd: -42.33, idea: "Champion plus 'never buy back above my exit price'. Anchoring cost ~17 points: prices that run away don't come back." },
   { date: "10-13", name: "Hammer Reversal",            family: "pattern",   ret:  -8.16, bh: 25.79, trades:  21, win:  52, dd: -42.75, idea: "Buy textbook hammer candles, hold 10 days. A 52% coin flip; candle shapes carried no information." },
+  { date: "10-14", name: "Storm Rider",                family: "breaker",   ret: -23.19, bh: 22.91, trades:   9, win:  44, dd: -35.30, idea: "The champion's complement: hold ONLY the 10-day post-crash windows the breaker avoids. Lost 23% while the market gained 23% - direct proof those windows destroy money." },
 ];
 
 // Derived once: excess return (strategy minus its own buy-and-hold benchmark).
@@ -440,7 +441,7 @@ function App() {
     <React.Fragment>
       <header className="lab">
         <h1>KalshiBTC Strategy Lab</h1>
-        <span className="asof">26 daily backtests &middot; Sep 17 &ndash; Oct 13, 2026</span>
+        <span className="asof">27 daily backtests &middot; Sep 17 &ndash; Oct 14, 2026</span>
         <p className="sub">
           One new BTC trading strategy invented and backtested every day against ~2 years of
           daily Coinbase data ($10,000 start, all-in/all-out at the close, 0.6% fee per side).
