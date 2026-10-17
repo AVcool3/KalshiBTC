@@ -1,0 +1,51 @@
+{
+  "meta": {
+    "series": "KXBTC15M",
+    "window_start_ts": 1785780656,
+    "window_end_ts": 1786385456,
+    "hours": 168.0,
+    "spot_source": "coinbase",
+    "markets_found": 661,
+    "candle_minutes": 10576
+  },
+  "summary": {
+    "markets_evaluated": 661,
+    "trades": 548,
+    "settled": 548,
+    "skipped": 113,
+    "skip_reasons": {
+      "odds below threshold": 108,
+      "no quote on chosen side at decision time": 5
+    },
+    "wins": 499,
+    "losses": 49,
+    "win_rate": 0.9105839416058394,
+    "capital_deployed": 2570.0099999999984,
+    "fees": 23.089999999999968,
+    "gross_pnl": 77.98999999999987,
+    "net_pnl": 54.89999999999993,
+    "roi_on_deployed": 0.021361784584495766,
+    "avg_net_pnl_per_trade": 0.10018248175182469,
+    "avg_entry_price_cents": 88.47627737226277,
+    "total_adds": 0,
+    "markets_with_adds": 0,
+    "avg_contracts_per_trade": 5.366788321167883,
+    "max_drawdown": -34.19,
+    "biggest_win": 2.98,
+    "biggest_loss": -5.08,
+    "config": {
+      "entry_lead_min": 5.0,
+      "stake": 5.0,
+      "min_odds": 60,
+      "adds": false,
+      "dip_pct": 5.0,
+      "dip_mode": "rel_last",
+      "min_distance_bps": 2.0,
+      "max_adds": "unlimited",
+      "price_source": "ask",
+      "fill_mode": "close",
+      "fees": true,
+      "fee_rate": 0.07
+    }
+  }
+}
