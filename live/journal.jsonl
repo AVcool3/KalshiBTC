@@ -23,3 +23,4 @@
 {"date":"2026-11-03","close":77336.75,"dailyReturnPct":0.86,"vol10dPct":1.58,"action":"hold","reason":"holding - no alarm","position":"btc","cooldownLeft":0,"paperEquity":9404.25}
 {"date":"2026-11-04","close":80428.31,"dailyReturnPct":4,"vol10dPct":2.05,"action":"hold","reason":"holding - no alarm","position":"btc","cooldownLeft":0,"paperEquity":9780.19}
 {"date":"2026-11-05","close":75969.06,"dailyReturnPct":-5.54,"vol10dPct":2.65,"action":"sell","reason":"circuit breaker: -5.54% day","position":"cash","cooldownLeft":10,"paperEquity":9182.51}
+{"date":"2026-11-06","close":75731.04,"dailyReturnPct":-0.31,"vol10dPct":2.61,"action":"hold","reason":"cooling down, 9 day(s) left","position":"cash","cooldownLeft":9,"paperEquity":9182.51}
