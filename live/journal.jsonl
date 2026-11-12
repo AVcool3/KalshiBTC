@@ -28,3 +28,4 @@
 {"date":"2026-11-08","close":74754.08,"dailyReturnPct":-1.32,"vol10dPct":2.32,"action":"hold","reason":"cooling down, 7 day(s) left","position":"cash","cooldownLeft":7,"paperEquity":9182.51}
 {"date":"2026-11-09","close":75259.28,"dailyReturnPct":0.68,"vol10dPct":2.33,"action":"hold","reason":"cooling down, 6 day(s) left","position":"cash","cooldownLeft":6,"paperEquity":9182.51}
 {"date":"2026-11-10","close":73697.87,"dailyReturnPct":-2.07,"vol10dPct":2.39,"action":"hold","reason":"cooling down, 5 day(s) left","position":"cash","cooldownLeft":5,"paperEquity":9182.51}
+{"date":"2026-11-11","close":73927.63,"dailyReturnPct":0.31,"vol10dPct":2.35,"action":"hold","reason":"cooling down, 4 day(s) left","position":"cash","cooldownLeft":4,"paperEquity":9182.51}

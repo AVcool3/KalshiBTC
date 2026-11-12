@@ -1,8 +1,8 @@
 {
   "mode": "paper",
   "position": "cash",
-  "cooldownLeft": 5,
+  "cooldownLeft": 4,
   "paperCash": 9182.514134771996,
   "paperBtc": 0,
-  "lastDecisionDate": "2026-11-10"
+  "lastDecisionDate": "2026-11-11"
 }
