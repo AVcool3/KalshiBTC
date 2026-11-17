@@ -18,6 +18,7 @@ const ERAS = [
   { name: "2015-2016", start: "2015-01-01", end: "2016-12-31" }, // data begins 2015-07-20
   { name: "2017-2019", start: "2017-01-01", end: "2019-12-31" },
   { name: "2020-2022", start: "2020-01-01", end: "2022-12-31" },
+  { name: "2023-2024", start: "2023-01-01", end: "2024-11-16" }, // ends the day before btc-daily.json begins
 ];
 
 const OUT_DIR = path.join(__dirname, "data", "eras");
