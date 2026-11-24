@@ -3,12 +3,14 @@
  * prints a comparison table (the "five-era" tables quoted in commit messages).
  *
  *   node backtest/run-eras.js strategies/a.js strategies/b.js            # BTC, 5 eras
- *   node backtest/run-eras.js --asset eth strategies/a.js                # ETH, 4 eras
+ *   node backtest/run-eras.js --asset eth strategies/a.js                # ETH, up to 4 eras
+ *   node backtest/run-eras.js --asset ltc strategies/a.js                # any fetched coin
  *
- * Needs backtest/data/eras/*.json (node backtest/fetch-eras.js), the rolling
- * backtest/data/btc-daily.json, and for --asset eth backtest/data/eth-daily.json
- * (node backtest/fetch-eth.js). Same engine, fees and rules as run.js; nothing
- * is written to RESULTS.md.
+ * Needs backtest/data/eras/*.json (node backtest/fetch-eras.js) and the rolling
+ * backtest/data/btc-daily.json; for another coin, backtest/data/<asset>-daily.json
+ * (node backtest/fetch-asset.js <PRODUCT> <start-date>). Eras with fewer than
+ * 300 candles for that coin are skipped. Same engine, fees and rules as run.js;
+ * nothing is written to RESULTS.md.
  *
  * Cell format: return / max drawdown (round-trips). The header row shows buy &
  * hold's return per era, and the bottom row buy & hold's own worst drawdown.
@@ -40,17 +42,20 @@ if (asset === "btc") {
     ["2023-24", load("eras/btc-2023-2024.json")],
     ["Rolling 2y", load("btc-daily.json")],
   ];
-} else if (asset === "eth") {
-  const eth = load("eth-daily.json");
-  eras = [
-    ["2017-19", between(eth, "2017-01-01", "2019-12-31")],
-    ["2020-22", between(eth, "2020-01-01", "2022-12-31")],
-    ["2023-24", between(eth, "2023-01-01", "2024-11-16")],
-    ["Rolling 2y", eth.slice(-730)],
-  ];
 } else {
-  console.error("--asset must be btc or eth");
-  process.exit(1);
+  const file = path.join(DATA, `${asset}-daily.json`);
+  if (!fs.existsSync(file)) {
+    console.error(`missing ${file}; run: node backtest/fetch-asset.js <PRODUCT> <start-date>`);
+    process.exit(1);
+  }
+  const coin = load(`${asset}-daily.json`);
+  eras = [
+    ["2015-16", between(coin, "2015-01-01", "2016-12-31")],
+    ["2017-19", between(coin, "2017-01-01", "2019-12-31")],
+    ["2020-22", between(coin, "2020-01-01", "2022-12-31")],
+    ["2023-24", between(coin, "2023-01-01", "2024-11-16")],
+    ["Rolling 2y", coin.slice(-730)],
+  ].filter(([, c]) => c.length >= 300);
 }
 
 // Fresh require per run: several strategies keep module-level state.

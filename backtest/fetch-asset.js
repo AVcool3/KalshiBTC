@@ -1,24 +1,26 @@
 /**
- * Fetches the full ETH-USD daily-candle history (complete UTC days) from the
- * Coinbase Exchange public API and saves it to backtest/data/eth-daily.json.
- * Used for out-of-sample checks of strategies on a different asset.
+ * Fetches the full daily-candle history (complete UTC days) of a Coinbase
+ * Exchange product and saves it to backtest/data/<asset>-daily.json. Used for
+ * out-of-sample checks of strategies on a different asset.
  *
- *   node backtest/fetch-eth.js
+ *   node backtest/fetch-asset.js                      # ETH-USD from 2016-05-18 (default)
+ *   node backtest/fetch-asset.js LTC-USD 2016-08-17   # any product, any start date
  *
  * Same candle shape as btc-daily.json: { date, time, open, high, low, close, volume }.
- * ETH-USD data on Coinbase begins in May 2016.
+ * Pick a start date on or after the product's listing; earlier chunks come back empty.
  */
 
 const fs = require("fs");
 const path = require("path");
 const https = require("https");
 
-const START = new Date("2016-05-18T00:00:00Z");
-const OUT = path.join(__dirname, "data", "eth-daily.json");
+const PRODUCT = process.argv[2] || "ETH-USD";
+const START = new Date((process.argv[3] || "2016-05-18") + "T00:00:00Z");
+const OUT = path.join(__dirname, "data", `${PRODUCT.split("-")[0].toLowerCase()}-daily.json`);
 
 function getChunk(start, end) {
   const url =
-    "https://api.exchange.coinbase.com/products/ETH-USD/candles?granularity=86400" +
+    `https://api.exchange.coinbase.com/products/${PRODUCT}/candles?granularity=86400` +
     `&start=${start.toISOString()}&end=${end.toISOString()}`;
   return new Promise((resolve, reject) => {
     https
@@ -65,7 +67,7 @@ function getChunk(start, end) {
   fs.writeFileSync(OUT, JSON.stringify(candles));
   let gaps = 0;
   for (let i = 1; i < candles.length; i++) if (candles[i].time - candles[i - 1].time !== 86400) gaps++;
-  console.log(`ETH-USD: ${candles.length} candles ${candles[0].date} -> ${candles[candles.length - 1].date}, gaps: ${gaps}`);
+  console.log(`${PRODUCT}: ${candles.length} candles ${candles[0].date} -> ${candles[candles.length - 1].date}, gaps: ${gaps}`);
 })().catch((e) => {
   console.error(e.message);
   process.exit(1);
